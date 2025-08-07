@@ -71,6 +71,186 @@ function demanderOption() {
   const match = solde.match(/[\d,.]+/);
   const soldeNum = match ? parseFloat(match[0].replace(",", ".")) : 0;
 
+  async function autoScroll(page) {
+    await page.evaluate(async () => {
+      await new Promise((resolve) => {
+        let scrollPosition = 0;
+        const scrollInterval = setInterval(() => {
+          window.scrollBy(0, 500);
+          scrollPosition += 500;
+
+          if (scrollPosition >= 2500) {
+            clearInterval(scrollInterval);
+            resolve();
+          }
+        }, 200);
+      });
+    });
+    await delay(4000); // Longue attente après défilement
+  }
+
+  async function safeClickAndPlaceBet(targetOdds = 5000, stakeAmount = 100) {
+    const MAX_ODDS = 1.5;
+    let selectedMatches = 0;
+    let consecutiveNoMatches = 0;
+    const MAX_CONSECUTIVE_NO_MATCHES = 10;
+
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // Phase 1: Sélection des paris
+    while (true) {
+      let foundValidMatch = false;
+      let currentTotal = 1;
+
+      try {
+        // Vérifier le total actuel
+        try {
+          currentTotal = await page.$eval(
+            '[data-test-id="totalOdds"]',
+            (el) => parseFloat(el.textContent.replace(",", ".")) || 1
+          );
+          console.log(
+            `📊 Total actuel: ${currentTotal.toFixed(2)}/${targetOdds}`
+          );
+
+          if (currentTotal >= targetOdds) break;
+        } catch (error) {
+          console.log("ℹ️ TotalOdds non disponible");
+        }
+
+        // Trouver et traiter les matchs
+        await page.waitForSelector(".event-bets", { timeout: 10000 });
+        const bets = await page.$$(".event-bets");
+
+        for (const bet of bets) {
+          try {
+            const isSelected = await bet
+              .evaluate((el) => !!el.querySelector(".event-bet.selected"))
+              .catch(() => false);
+
+            if (isSelected) continue;
+
+            const odds = await bet.$$eval(
+              ".event-odds span:not(.svg-icon)",
+              (els) => els.map((el) => parseFloat(el.textContent) || Infinity)
+            );
+
+            if (odds.length < 3 || Math.min(odds[0], odds[2]) > MAX_ODDS)
+              continue;
+
+            const bestOdd = Math.min(odds[0], odds[2]);
+            const selector =
+              odds[0] < odds[2]
+                ? '[data-test-id*="3744"] .event-bet'
+                : '[data-test-id*="3746"] .event-bet';
+
+            const btn = await bet.$(selector);
+            if (btn) {
+              await btn.click();
+              await delay(2000);
+
+              const isNowSelected = await btn.evaluate((el) =>
+                el.classList.contains("selected")
+              );
+
+              if (isNowSelected) {
+                selectedMatches++;
+                foundValidMatch = true;
+                consecutiveNoMatches = 0;
+                console.log(
+                  `✅ Paris ${selectedMatches}: Côte ${bestOdd.toFixed(2)}`
+                );
+              }
+            }
+          } catch (error) {
+            console.error("⚠️ Erreur sur un match:", error.message);
+          }
+        }
+
+        if (!foundValidMatch) {
+          consecutiveNoMatches++;
+          console.log(
+            `🔄 Défilement ${consecutiveNoMatches} (aucun nouveau match valide)`
+          );
+
+          if (consecutiveNoMatches >= MAX_CONSECUTIVE_NO_MATCHES) {
+            console.log("🏁 Aucun nouveau match depuis longtemps");
+            break;
+          }
+        } else {
+          consecutiveNoMatches = 0;
+        }
+
+        await autoScroll(page);
+      } catch (error) {
+        console.error("🚨 Erreur générale:", error.message);
+        await delay(5000);
+      }
+    }
+
+    // Phase 2: Placement de la mise
+    try {
+      console.log("💵 Préparation de la mise...");
+
+      // 1. Remplir le champ de mise
+      await page.waitForSelector("#betslip-form-stake-input", {
+        timeout: 5000,
+      });
+      await page.focus("#betslip-form-stake-input");
+      await page.keyboard.down("Control");
+      await page.keyboard.press("A");
+      await page.keyboard.up("Control");
+      await page.keyboard.press("Backspace");
+      await page.type("#betslip-form-stake-input", stakeAmount.toString(), {
+        delay: 100,
+      });
+
+      console.log(`💰 Montant saisi: ${stakeAmount}`);
+
+      // 2. Cliquer sur le bouton de pari
+      await page.waitForSelector(".place-bet.button-primary", {
+        timeout: 5000,
+      });
+      await page.click(".place-bet.button-primary");
+
+      console.log("🎰 Pari en cours...");
+      await delay(3000); // Attente confirmation
+
+      // 3. Vérification du succès
+      const isSuccess = await page
+        .evaluate(() => {
+          const successMsg = document.querySelector(".bet-confirmation");
+          return (
+            !!successMsg && getComputedStyle(successMsg).display !== "none"
+          );
+        })
+        .catch(() => false);
+
+      if (isSuccess) {
+        console.log("✔️ Pari effectué avec succès!");
+      } else {
+        console.log("❌ Échec du placement de pari");
+      }
+    } catch (betError) {
+      console.error("💥 Erreur lors du placement du pari:", betError.message);
+    }
+
+    // Résultat final
+    const finalTotal = await page
+      .$eval(
+        '[data-test-id="totalOdds"]',
+        (el) => parseFloat(el.textContent.replace(",", ".")) || 1
+      )
+      .catch(() => 1);
+
+    return {
+      success: finalTotal >= targetOdds,
+      totalOdds: finalTotal,
+      selectedMatches,
+      betPlaced: true,
+    };
+  }
+
   if (soldeNum > 0) {
     console.log("Le solde est supérieur à 0:", soldeNum);
 
@@ -92,10 +272,13 @@ function demanderOption() {
         // ... logique double chance ...
       } else if (choix === "2") {
         console.log("Option choisie : Juste victoire");
-        
 
+        // Utilisation
+        (async () => {
+          const result = await safeClickAndPlaceBet(100, 10);
+          console.log(result);
+        })();
 
-        
       } else if (choix === "3") {
         console.log("Option choisie : Double chance + victoire");
         // ... logique combinée ...
@@ -112,5 +295,5 @@ function demanderOption() {
   }
 
   // Fermer le navigateur
-  // await browser.close();
+  //await browser.close();
 })();
