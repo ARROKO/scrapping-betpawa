@@ -2,6 +2,9 @@ require("dotenv").config();
 const puppeteer = require("puppeteer");
 const readline = require("readline");
 
+// ===== FONCTION DE DÉLAI =====
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Interface pour poser les questions
 function poserQuestion(question) {
   const rl = readline.createInterface({
@@ -30,9 +33,9 @@ async function demanderParametres() {
   let connexionAuto;
   do {
     const input = await poserQuestion("Utiliser la connexion automatique ? (oui/non) : ");
-    if (['oui', 'o', 'yes', 'y', '1'].includes(input)) {
+    if (['oui', 'o', 'yes', 'y', '1'].includes(input.toLowerCase())) {
       connexionAuto = true;
-    } else if (['non', 'n', 'no', '0'].includes(input)) {
+    } else if (['non', 'n', 'no', '0'].includes(input.toLowerCase())) {
       connexionAuto = false;
     } else {
       console.log("❌ Veuillez répondre par 'oui' ou 'non'");
@@ -42,7 +45,7 @@ async function demanderParametres() {
 
   // 2. Choix de la stratégie
   console.log("\n📋 Choisissez une stratégie de paris :");
-  console.log("1. Double chance (Conservateur)");
+  console.log("1. Double chance (Conservateur) ⭐ RECOMMANDÉ");
   console.log("2. Juste victoire (Équilibré)");
   console.log("3. Plus de 0.5 but (Spécialisé)");
   console.log("4. Double chance + victoire (Agressif)");
@@ -70,7 +73,7 @@ async function demanderParametres() {
 
   // 4. Cote maximale par pari
   console.log("\n⚖️ Limite de cote par pari :");
-  console.log("Exemples : 1.5 (très sûr), 2.0 (équilibré), 3.0 (risqué)");
+  console.log("Exemples : 1.5 (très sûr), 2.0 (sûr), 2.5 (équilibré), 3.0 (risqué)");
   
   let coteMaxPari;
   do {
@@ -90,9 +93,9 @@ async function demanderParametres() {
   let modeAleatoire;
   do {
     const input = await poserQuestion("Utiliser le mode aléatoire ? (oui/non) : ");
-    if (['oui', 'o', 'yes', 'y', '1'].includes(input)) {
+    if (['oui', 'o', 'yes', 'y', '1'].includes(input.toLowerCase())) {
       modeAleatoire = true;
-    } else if (['non', 'n', 'no', '0'].includes(input)) {
+    } else if (['non', 'n', 'no', '0'].includes(input.toLowerCase())) {
       modeAleatoire = false;
     } else {
       console.log("❌ Veuillez répondre par 'oui' ou 'non'");
@@ -119,9 +122,9 @@ async function demanderParametres() {
   let placementAuto;
   do {
     const input = await poserQuestion("Placement automatique ? (oui/non) : ");
-    if (['oui', 'o', 'yes', 'y', '1'].includes(input)) {
+    if (['oui', 'o', 'yes', 'y', '1'].includes(input.toLowerCase())) {
       placementAuto = true;
-    } else if (['non', 'n', 'no', '0'].includes(input)) {
+    } else if (['non', 'n', 'no', '0'].includes(input.toLowerCase())) {
       placementAuto = false;
     } else {
       console.log("❌ Veuillez répondre par 'oui' ou 'non'");
@@ -144,7 +147,7 @@ async function demanderParametres() {
   
   const confirmation = await poserQuestion("\n✅ Confirmer ces paramètres ? (oui/non) : ");
   
-  if (!['oui', 'o', 'yes', 'y', '1'].includes(confirmation)) {
+  if (!['oui', 'o', 'yes', 'y', '1'].includes(confirmation.toLowerCase())) {
     console.log("❌ Configuration annulée.");
     process.exit(0);
   }
@@ -230,6 +233,162 @@ async function recupererSolde(page) {
   } catch (error) {
     console.log("⚠️ Impossible de récupérer le solde");
     return 0;
+  }
+}
+
+// ===== FONCTION DE SÉLECTION DOUBLE CHANCE AMÉLIORÉE =====
+async function selectDoubleChance(page) {
+  try {
+    console.log("🔍 Recherche des options Double Chance...");
+    
+    // Attendre que la section Double Chance soit visible
+    await page.waitForSelector('[data-test-id="market-4693"]', { timeout: 15000 });
+    console.log("✅ Section Double Chance trouvée");
+    
+    // Attendre un peu plus pour s'assurer que tout est chargé
+    await delay(2000);
+    
+    // Récupérer les options double chance avec une approche plus robuste
+    const doubleChanceOptions = await page.evaluate(() => {
+      const options = [];
+      
+      // 1X (Domicile ou Match Nul)
+      const bet1X = document.querySelector('[data-test-id="Odd-4693-4694"]');
+      if (bet1X) {
+        const selection = bet1X.querySelector('.event-selection');
+        const oddsSpan = bet1X.querySelector('.event-odds span:not(.svg-icon)');
+        if (selection && oddsSpan) {
+          options.push({
+            selector: '[data-test-id="Odd-4693-4694"] .event-bet',
+            selection: selection.textContent.trim(),
+            odds: parseFloat(oddsSpan.textContent.replace(',', '.'))
+          });
+        }
+      }
+      
+      // X2 (Match Nul ou Extérieur)
+      const betX2 = document.querySelector('[data-test-id="Odd-4693-4695"]');
+      if (betX2) {
+        const selection = betX2.querySelector('.event-selection');
+        const oddsSpan = betX2.querySelector('.event-odds span:not(.svg-icon)');
+        if (selection && oddsSpan) {
+          options.push({
+            selector: '[data-test-id="Odd-4693-4695"] .event-bet',
+            selection: selection.textContent.trim(),
+            odds: parseFloat(oddsSpan.textContent.replace(',', '.'))
+          });
+        }
+      }
+      
+      // 12 (Domicile ou Extérieur)
+      const bet12 = document.querySelector('[data-test-id="Odd-4693-4696"]');
+      if (bet12) {
+        const selection = bet12.querySelector('.event-selection');
+        const oddsSpan = bet12.querySelector('.event-odds span:not(.svg-icon)');
+        if (selection && oddsSpan) {
+          options.push({
+            selector: '[data-test-id="Odd-4693-4696"] .event-bet',
+            selection: selection.textContent.trim(),
+            odds: parseFloat(oddsSpan.textContent.replace(',', '.'))
+          });
+        }
+      }
+      
+      return options;
+    });
+
+    if (doubleChanceOptions.length === 0) {
+      throw new Error("Aucune option Double Chance trouvée");
+    }
+
+    console.log(`📊 Options trouvées: ${doubleChanceOptions.map(o => `${o.selection} @${o.odds}`).join(', ')}`);
+
+    // Choisir la meilleure option (cote la plus basse = plus sûre)
+    const bestOption = doubleChanceOptions.reduce((best, current) => 
+      current.odds < best.odds ? current : best
+    );
+
+    console.log(`🎯 Sélection: ${bestOption.selection} @${bestOption.odds}`);
+
+    // Cliquer sur la meilleure option avec retry
+    let clickSuccess = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await page.click(bestOption.selector);
+        await delay(3000); // Attendre plus longtemps
+        
+        // Vérifier que l'option est sélectionnée
+        const isSelected = await page.evaluate((selector) => {
+          const element = document.querySelector(selector);
+          return element && element.classList.contains('selected');
+        }, bestOption.selector);
+
+        if (isSelected) {
+          clickSuccess = true;
+          console.log("✅ Option Double Chance sélectionnée avec succès !");
+          break;
+        } else {
+          console.log(`⚠️ Tentative ${attempt}/3 - Pas encore sélectionné`);
+          if (attempt < 3) await delay(2000);
+        }
+      } catch (error) {
+        console.log(`⚠️ Tentative ${attempt}/3 échouée:`, error.message);
+        if (attempt < 3) await delay(2000);
+      }
+    }
+
+    if (clickSuccess) {
+      return {
+        success: true,
+        selection: bestOption.selection,
+        odds: bestOption.odds,
+        type: 'double_chance'
+      };
+    } else {
+      throw new Error("Impossible de sélectionner l'option après 3 tentatives");
+    }
+
+  } catch (error) {
+    console.error("❌ Erreur lors de la sélection Double Chance:", error.message);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// ===== FONCTION DE TRAITEMENT DE MATCH AMÉLIORÉE =====
+async function processMatchRobust(page, teamNames, href, strategy) {
+  try {
+    console.log(`🔍 Analyse: ${teamNames}`);
+    
+    // Naviguer directement avec l'URL du match
+    const matchUrl = `https://www.betpawa.cm${href}`;
+    console.log(`🌐 Navigation vers: ${matchUrl}`);
+    
+    await page.goto(matchUrl, { 
+      waitUntil: "networkidle2", 
+      timeout: 30000 
+    });
+    
+    console.log("✅ Page du match chargée");
+
+    // Sélectionner la stratégie appropriée
+    let result;
+    if (strategy === '1' || strategy.includes('double_chance')) {
+      result = await selectDoubleChance(page);
+    } else {
+      result = { success: false, error: "Stratégie non implémentée" };
+    }
+    
+    return result;
+
+  } catch (error) {
+    console.error("❌ Erreur lors du traitement du match:", error.message);
+    return {
+      success: false,
+      error: error.message
+    };
   }
 }
 
@@ -321,409 +480,155 @@ async function arreterApplication(browser, success = true) {
   process.exit(success ? 0 : 1);
 }
 
-// ===== CLASSE STRATÉGIE ALÉATOIRE =====
-class RandomBettingStrategy {
-  constructor(coteMaxPari = 2.5) {
-    this.usedMatches = new Set();
-    this.strategies = ['conservative', 'balanced', 'aggressive'];
-    this.currentStrategy = this.getRandomStrategy();
-    this.consecutiveFailures = 0;
-    this.maxOddsPerBet = coteMaxPari;
-  }
+// ===== FONCTION DE DÉFILEMENT AUTOMATIQUE =====
+async function autoScroll(page) {
+  try {
+    console.log("📜 Défilement pour charger plus de matchs...");
+    
+    await page.evaluate(async () => {
+      await new Promise((resolve) => {
+        let scrollPosition = 0;
+        const scrollInterval = setInterval(() => {
+          window.scrollBy(0, 800);
+          scrollPosition += 800;
 
-  async getRandomValidMatches(page) {
-    await page.waitForSelector(".event-bets", { timeout: 10000 });
-    const allBets = await page.$$(".event-bets");
-    const validMatches = [];
-
-    for (let i = 0; i < allBets.length; i++) {
-      const bet = allBets[i];
-      
-      try {
-        const isSelected = await bet
-          .evaluate((el) => !!el.querySelector(".event-bet.selected"))
-          .catch(() => false);
-
-        if (isSelected) continue;
-
-        const teamNames = await bet.$eval('.event-name', el => el.textContent.trim()).catch(() => `match_${i}`);
-        if (this.usedMatches.has(teamNames)) continue;
-
-        const odds = await bet.$$eval(
-          ".event-odds span:not(.svg-icon)",
-          (els) => els.map((el) => parseFloat(el.textContent.replace(",", ".")) || Infinity)
-        );
-
-        if (odds.length >= 3) {
-          const homeOdd = odds[0];
-          const awayOdd = odds[2];
-          const overGoalsOdd = odds.length > 3 ? odds[3] : null;
-
-          if (homeOdd <= this.maxOddsPerBet || awayOdd <= this.maxOddsPerBet || (overGoalsOdd && overGoalsOdd <= this.maxOddsPerBet)) {
-            validMatches.push({
-              element: bet,
-              index: i,
-              teamNames,
-              odds: { home: homeOdd, away: awayOdd, overGoals: overGoalsOdd },
-              bestOdd: Math.min(homeOdd, awayOdd),
-              riskLevel: this.calculateRiskLevel(homeOdd, awayOdd, overGoalsOdd)
-            });
+          if (scrollPosition >= 4000) {
+            clearInterval(scrollInterval);
+            resolve();
           }
-        }
-      } catch (error) {
-        console.log(`⚠️ Erreur sur match ${i}:`, error.message);
-      }
-    }
-
-    return this.shuffleArray(validMatches);
-  }
-
-  async getSequentialValidMatches(page) {
-    await page.waitForSelector(".event-bets", { timeout: 10000 });
-    const allBets = await page.$$(".event-bets");
-    const validMatches = [];
-
-    for (let i = 0; i < allBets.length; i++) {
-      const bet = allBets[i];
-      
-      try {
-        const isSelected = await bet
-          .evaluate((el) => !!el.querySelector(".event-bet.selected"))
-          .catch(() => false);
-
-        if (isSelected) continue;
-
-        const teamNames = await bet.$eval('.event-name', el => el.textContent.trim()).catch(() => `match_${i}`);
-        if (this.usedMatches.has(teamNames)) continue;
-
-        const odds = await bet.$$eval(
-          ".event-odds span:not(.svg-icon)",
-          (els) => els.map((el) => parseFloat(el.textContent.replace(",", ".")) || Infinity)
-        );
-
-        if (odds.length >= 3) {
-          const homeOdd = odds[0];
-          const awayOdd = odds[2];
-          const overGoalsOdd = odds.length > 3 ? odds[3] : null;
-
-          if (homeOdd <= this.maxOddsPerBet || awayOdd <= this.maxOddsPerBet || (overGoalsOdd && overGoalsOdd <= this.maxOddsPerBet)) {
-            validMatches.push({
-              element: bet,
-              index: i,
-              teamNames,
-              odds: { home: homeOdd, away: awayOdd, overGoals: overGoalsOdd },
-              bestOdd: Math.min(homeOdd, awayOdd),
-              riskLevel: this.calculateRiskLevel(homeOdd, awayOdd, overGoalsOdd)
-            });
-          }
-        }
-      } catch (error) {
-        console.log(`⚠️ Erreur sur match ${i}:`, error.message);
-      }
-    }
-
-    return validMatches;
-  }
-
-  getRandomStrategy() {
-    const strategies = ['conservative', 'balanced', 'aggressive', 'mixed'];
-    return strategies[Math.floor(Math.random() * strategies.length)];
-  }
-
-  selectMatchByStrategy(validMatches, strategy = this.currentStrategy, isRandom = true) {
-    if (validMatches.length === 0) return null;
-
-    if (!isRandom) {
-      return validMatches.sort((a, b) => a.bestOdd - b.bestOdd)[0];
-    }
-
-    switch (strategy) {
-      case 'conservative':
-        return validMatches.sort((a, b) => a.bestOdd - b.bestOdd)[0];
-      case 'aggressive':
-        return validMatches.sort((a, b) => b.bestOdd - a.bestOdd)[0];
-      case 'balanced':
-        return this.weightedRandomSelection(validMatches);
-      case 'mixed':
-        const newStrategy = ['conservative', 'balanced', 'aggressive'][Math.floor(Math.random() * 3)];
-        return this.selectMatchByStrategy(validMatches, newStrategy, isRandom);
-      default:
-        return validMatches[Math.floor(Math.random() * validMatches.length)];
-    }
-  }
-
-  weightedRandomSelection(matches) {
-    const weights = matches.map(match => 1 / match.bestOdd);
-    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+        }, 300);
+      });
+    });
     
-    let random = Math.random() * totalWeight;
+    await delay(5000); // Attendre que le contenu se charge
+    console.log("✅ Défilement terminé");
     
-    for (let i = 0; i < matches.length; i++) {
-      random -= weights[i];
-      if (random <= 0) {
-        return matches[i];
-      }
-    }
-    
-    return matches[matches.length - 1];
-  }
-
-  getRandomBetType(odds, choixUtilisateur) {
-    const availableBets = [];
-    
-    switch (choixUtilisateur) {
-      case "1": 
-        if (odds.home <= this.maxOddsPerBet) availableBets.push({ type: 'home', odd: odds.home, selector: '[data-test-id*="3744"] .event-bet' });
-        if (odds.away <= this.maxOddsPerBet) availableBets.push({ type: 'away', odd: odds.away, selector: '[data-test-id*="3746"] .event-bet' });
-        break;
-      case "2": 
-        if (odds.home <= this.maxOddsPerBet) availableBets.push({ type: 'home', odd: odds.home, selector: '[data-test-id*="3744"] .event-bet' });
-        if (odds.away <= this.maxOddsPerBet) availableBets.push({ type: 'away', odd: odds.away, selector: '[data-test-id*="3746"] .event-bet' });
-        break;
-      case "3": 
-        if (odds.overGoals && odds.overGoals <= this.maxOddsPerBet) {
-          availableBets.push({ type: 'over', odd: odds.overGoals, selector: '.over-goals .event-bet' });
-        }
-        if (availableBets.length === 0) {
-          if (odds.home <= this.maxOddsPerBet) availableBets.push({ type: 'home', odd: odds.home, selector: '[data-test-id*="3744"] .event-bet' });
-          if (odds.away <= this.maxOddsPerBet) availableBets.push({ type: 'away', odd: odds.away, selector: '[data-test-id*="3746"] .event-bet' });
-        }
-        break;
-      case "4": 
-      case "5": 
-      case "6": 
-        if (odds.home <= this.maxOddsPerBet) availableBets.push({ type: 'home', odd: odds.home, selector: '[data-test-id*="3744"] .event-bet' });
-        if (odds.away <= this.maxOddsPerBet) availableBets.push({ type: 'away', odd: odds.away, selector: '[data-test-id*="3746"] .event-bet' });
-        if (odds.overGoals && odds.overGoals <= this.maxOddsPerBet) {
-          availableBets.push({ type: 'over', odd: odds.overGoals, selector: '.over-goals .event-bet' });
-        }
-        break;
-      default:
-        if (odds.home <= this.maxOddsPerBet) availableBets.push({ type: 'home', odd: odds.home, selector: '[data-test-id*="3744"] .event-bet' });
-        if (odds.away <= this.maxOddsPerBet) availableBets.push({ type: 'away', odd: odds.away, selector: '[data-test-id*="3746"] .event-bet' });
-    }
-    
-    if (availableBets.length === 0) return null;
-    
-    return this.weightedRandomSelection(availableBets.map(bet => ({
-      ...bet,
-      bestOdd: bet.odd
-    })));
-  }
-
-  getBestBetType(odds, choixUtilisateur) {
-    const availableBets = [];
-    
-    switch (choixUtilisateur) {
-      case "1": 
-      case "2": 
-        if (odds.home <= this.maxOddsPerBet) availableBets.push({ type: 'home', odd: odds.home, selector: '[data-test-id*="3744"] .event-bet' });
-        if (odds.away <= this.maxOddsPerBet) availableBets.push({ type: 'away', odd: odds.away, selector: '[data-test-id*="3746"] .event-bet' });
-        break;
-      case "3": 
-        if (odds.overGoals && odds.overGoals <= this.maxOddsPerBet) {
-          availableBets.push({ type: 'over', odd: odds.overGoals, selector: '.over-goals .event-bet' });
-        }
-        if (availableBets.length === 0) {
-          if (odds.home <= this.maxOddsPerBet) availableBets.push({ type: 'home', odd: odds.home, selector: '[data-test-id*="3744"] .event-bet' });
-          if (odds.away <= this.maxOddsPerBet) availableBets.push({ type: 'away', odd: odds.away, selector: '[data-test-id*="3746"] .event-bet' });
-        }
-        break;
-      default:
-        if (odds.home <= this.maxOddsPerBet) availableBets.push({ type: 'home', odd: odds.home, selector: '[data-test-id*="3744"] .event-bet' });
-        if (odds.away <= this.maxOddsPerBet) availableBets.push({ type: 'away', odd: odds.away, selector: '[data-test-id*="3746"] .event-bet' });
-    }
-    
-    if (availableBets.length === 0) return null;
-    return availableBets.sort((a, b) => a.odd - b.odd)[0];
-  }
-
-  getRandomHumanDelay() {
-    return Math.random() * 4000 + 1500; 
-  }
-
-  getRandomClickDelay() {
-    return Math.random() * 1000 + 500; 
-  }
-
-  shuffleArray(array) {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  }
-
-  calculateRiskLevel(homeOdd, awayOdd, overGoalsOdd) {
-    const minOdd = Math.min(homeOdd, awayOdd, overGoalsOdd || Infinity);
-    if (minOdd <= 1.3) return 'low';
-    if (minOdd <= 1.8) return 'medium';
-    return 'high';
-  }
-
-  adaptStrategy(consecutiveFailures) {
-    if (consecutiveFailures >= 3) {
-      console.log("🔄 Adaptation: Changement de stratégie après échecs");
-      this.currentStrategy = this.getRandomStrategy();
-      return true;
-    }
-    return false;
+  } catch (error) {
+    console.log("⚠️ Erreur pendant le défilement:", error.message);
   }
 }
 
-// ===== FONCTION PRINCIPALE =====
-async function smartBetting(page, targetOdds, choixUtilisateur, coteMaxPari, modeAleatoire) {
-  const strategy = new RandomBettingStrategy(coteMaxPari);
+// ===== FONCTION PRINCIPALE DE PARIS DOUBLE CHANCE CORRIGÉE =====
+async function smartDoubleChanceBetting(page, targetOdds, coteMaxPari, modeAleatoire) {
+  let currentTotal = 1;
   let selectedMatches = 0;
   let consecutiveNoMatches = 0;
-  let currentTotal = 1;
-  const selectedOdds = [];
-  const MAX_MATCHES = 20;
-  const MAX_CONSECUTIVE_NO_MATCHES = 8;
-  
-  const strategyMap = {
-    "1": "conservative",
-    "2": "balanced", 
-    "3": "balanced",
-    "4": "aggressive",
-    "5": "mixed",
-    "6": "aggressive"
-  };
-  
-  strategy.currentStrategy = strategyMap[choixUtilisateur] || "balanced";
-  
-  console.log(`🎯 Objectif: ${targetOdds}x | Cote max/pari: ${coteMaxPari}x`);
-  console.log(`🎮 Stratégie: ${strategy.currentStrategy} | Mode: ${modeAleatoire ? 'ALÉATOIRE' : 'SÉQUENTIEL'}`);
+  const MAX_CONSECUTIVE_NO_MATCHES = 3; // Réduit pour scroll plus tôt
+  const usedMatches = new Set();
+  const MAX_MATCHES = 15; // Limite pour éviter les boucles infinies
+
+  console.log(`🎯 Stratégie: Double Chance`);
+  console.log(`🎯 Objectif: ${targetOdds}x | Cote max: ${coteMaxPari}x`);
+  console.log(`🎮 Mode: ${modeAleatoire ? 'ALÉATOIRE' : 'SÉQUENTIEL'}`);
 
   while (currentTotal < targetOdds && selectedMatches < MAX_MATCHES) {
+    console.log(`\n🔢 Total actuel: ${currentTotal.toFixed(2)} (Objectif: ${targetOdds})`);
+    console.log(`📊 Matchs sélectionnés: ${selectedMatches}`);
+
     try {
-      if (modeAleatoire) {
-        await new Promise(resolve => setTimeout(resolve, strategy.getRandomHumanDelay()));
-      } else {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      // Retourner à la liste des matchs si nécessaire
+      const currentUrl = page.url();
+      if (!currentUrl.includes('events?marketId=1X2')) {
+        console.log("🔙 Retour à la liste des matchs...");
+        await page.goto("https://www.betpawa.cm/events?marketId=1X2&categoryId=2", {
+          waitUntil: "networkidle2",
+          timeout: 30000
+        });
+        await delay(3000);
       }
+
+      // Attendre et récupérer les informations des matchs
+      await page.waitForSelector('.game-event-wrapper', { timeout: 10000 });
       
-      const validMatches = modeAleatoire 
-        ? await strategy.getRandomValidMatches(page)
-        : await strategy.getSequentialValidMatches(page);
-      
-      if (validMatches.length === 0) {
-        consecutiveNoMatches++;
-        console.log(`🔄 Aucun match valide (${consecutiveNoMatches}/${MAX_CONSECUTIVE_NO_MATCHES})`);
-        
-        if (consecutiveNoMatches >= MAX_CONSECUTIVE_NO_MATCHES) {
-          console.log("📜 Défilement pour chercher plus de matchs...");
-          await autoScroll(page);
-          consecutiveNoMatches = 0;
-          if (modeAleatoire) strategy.adaptStrategy(consecutiveNoMatches);
-        }
-        continue;
-      }
-
-      const selectedMatch = strategy.selectMatchByStrategy(validMatches, strategy.currentStrategy, modeAleatoire);
-      if (!selectedMatch) continue;
-
-      const betChoice = modeAleatoire 
-        ? strategy.getRandomBetType(selectedMatch.odds, choixUtilisateur)
-        : strategy.getBestBetType(selectedMatch.odds, choixUtilisateur);
-        
-      if (!betChoice) {
-        console.log(`⚠️ Aucun pari valide pour: ${selectedMatch.teamNames}`);
-        continue;
-      }
-
-      console.log(`${modeAleatoire ? '🎲' : '📊'} Match: ${selectedMatch.teamNames}`);
-      console.log(`📈 Pari: ${betChoice.type} @ ${betChoice.odd.toFixed(2)}`);
-
-      if (modeAleatoire) {
-        await new Promise(resolve => setTimeout(resolve, strategy.getRandomClickDelay()));
-      } else {
-        await new Promise(resolve => setTimeout(resolve, 800));
-      }
-
-      const betButton = await selectedMatch.element.$(betChoice.selector);
-      if (betButton) {
-        await betButton.click();
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        const isSelected = await betButton.evaluate(el => el.classList.contains("selected"));
-        
-        if (isSelected) {
-          strategy.usedMatches.add(selectedMatch.teamNames);
-          selectedOdds.push(betChoice.odd);
-          currentTotal = selectedOdds.reduce((total, odd) => total * odd, 1);
-          selectedMatches++;
-          consecutiveNoMatches = 0;
-          
-          console.log(`✅ Pari ${selectedMatches}: ${betChoice.odd.toFixed(2)} | Total: ${currentTotal.toFixed(2)}`);
-          
-          if (modeAleatoire && selectedMatches % 3 === 0) {
-            const oldStrategy = strategy.currentStrategy;
-            strategy.currentStrategy = strategy.getRandomStrategy();
-            console.log(`🔄 Stratégie: ${oldStrategy} → ${strategy.currentStrategy}`);
+      const matchesInfo = await page.evaluate(() => {
+        const matches = Array.from(document.querySelectorAll('.game-event-wrapper'));
+        return matches.map((match, index) => {
+          try {
+            const teams = Array.from(match.querySelectorAll('.scoreboard-participant-name'))
+              .map(team => team.textContent.trim());
+            const href = match.getAttribute('href');
+            return { 
+              teams: teams, 
+              href: href,
+              teamNames: teams.length >= 2 ? `${teams[0]} vs ${teams[1]}` : `match_${index}`,
+              index: index
+            };
+          } catch (e) {
+            return null;
           }
-          
-          if (currentTotal >= targetOdds) {
-            console.log(`🎯 Objectif ${targetOdds}x atteint ! Total: ${currentTotal.toFixed(2)}`);
-            break;
+        }).filter(match => match !== null);
+      });
+
+      console.log(`📋 ${matchesInfo.length} matchs disponibles`);
+
+      let foundValidMatch = false;
+
+      for (const matchInfo of matchesInfo) {
+        const matchKey = matchInfo.teamNames;
+        
+        if (usedMatches.has(matchKey)) {
+          console.log(`⏭️ Match déjà traité: ${matchKey}`);
+          continue;
+        }
+
+        const result = await processMatchRobust(page, matchInfo.teamNames, matchInfo.href, '1');
+
+        if (result.success) {
+          // CORRECTION: Utiliser <= au lieu de < pour inclure la limite exacte
+          if (result.odds <= coteMaxPari) {
+            currentTotal *= result.odds;
+            selectedMatches++;
+            foundValidMatch = true;
+            usedMatches.add(matchKey);
+            
+            console.log(`✅ Match sélectionné! ${result.selection} @${result.odds}`);
+            console.log(`🎯 Nouveau total: ${currentTotal.toFixed(2)}`);
+            
+            // Vérifier si l'objectif est atteint
+            if (currentTotal >= targetOdds) {
+              console.log(`🎉 Objectif atteint ! Total: ${currentTotal.toFixed(2)}`);
+              break;
+            }
+            
+            break; // Sortir de la boucle des matchs pour recommencer la recherche
+          } else {
+            console.log(`⚠️ Cote trop élevée: ${result.odds} > ${coteMaxPari} (ignoré)`);
+            usedMatches.add(matchKey);
           }
         } else {
-          console.log(`❌ Échec de sélection pour: ${selectedMatch.teamNames}`);
-          consecutiveNoMatches++;
+          usedMatches.add(matchKey); // Marquer comme traité même si échec
+          console.log(`❌ Échec sur: ${matchKey} - ${result.error}`);
         }
+      }
+
+      if (!foundValidMatch) {
+        consecutiveNoMatches++;
+        console.log(`🔄 Aucun match valide trouvé (${consecutiveNoMatches}/${MAX_CONSECUTIVE_NO_MATCHES})`);
+        
+        if (consecutiveNoMatches >= MAX_CONSECUTIVE_NO_MATCHES) {
+          console.log("📜 Tentative de scroll pour plus de matchs...");
+          await autoScroll(page);
+          consecutiveNoMatches = 0; // Reset le compteur après scroll
+          usedMatches.clear(); // Effacer la liste pour permettre de re-tenter
+        }
+      } else {
+        consecutiveNoMatches = 0;
       }
 
     } catch (error) {
-      console.error("🚨 Erreur dans la boucle:", error.message);
+      console.error("🚨 Erreur générale:", error.message);
       consecutiveNoMatches++;
-      if (modeAleatoire) strategy.adaptStrategy(consecutiveNoMatches);
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await delay(5000); // Attendre plus longtemps en cas d'erreur
     }
-  }
-
-  let finalTotal = currentTotal;
-  try {
-    const siteTotal = await page.$eval(
-      '[data-test-id="totalOdds"]',
-      (el) => parseFloat(el.textContent.replace(/[^\d,]/g, '').replace(",", ".")) || 1
-    );
-    if (siteTotal > currentTotal) {
-      finalTotal = siteTotal;
-      console.log(`🔍 Total corrigé par le site: ${finalTotal.toFixed(2)}`);
-    }
-  } catch (error) {
-    console.log("ℹ️ Impossible de vérifier le total sur le site");
   }
 
   return {
-    success: finalTotal >= targetOdds,
-    totalOdds: finalTotal,
+    success: currentTotal >= targetOdds,
+    totalOdds: currentTotal,
     selectedMatches,
-    strategy: strategy.currentStrategy,
-    targetReached: finalTotal >= targetOdds,
-    efficiency: ((finalTotal / targetOdds) * 100).toFixed(1),
-    mode: modeAleatoire ? 'ALÉATOIRE' : 'SÉQUENTIEL'
+    efficiency: ((currentTotal / targetOdds) * 100).toFixed(1),
+    strategy: 'Double Chance'
   };
-}
-
-// ===== FONCTION DE DÉFILEMENT =====
-async function autoScroll(page) {
-  await page.evaluate(async () => {
-    await new Promise((resolve) => {
-      let scrollPosition = 0;
-      const scrollInterval = setInterval(() => {
-        window.scrollBy(0, 500);
-        scrollPosition += 500;
-
-        if (scrollPosition >= 2500) {
-          clearInterval(scrollInterval);
-          resolve();
-        }
-      }, 200);
-    });
-  });
-  await new Promise(resolve => setTimeout(resolve, 4000));
 }
 
 // ===== SCRIPT PRINCIPAL =====
@@ -733,8 +638,8 @@ async function autoScroll(page) {
 
     const browser = await puppeteer.launch({
       headless: false,
-      slowMo: 50,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      slowMo: 100, // Plus lent pour éviter les détachements
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--start-maximized']
     });
 
     const page = await browser.newPage();
@@ -760,68 +665,74 @@ async function autoScroll(page) {
     }
 
     // Étape 2: Navigation vers Football
-    const toutVoirSelector = "div.event-counter span.pointer span:first-child";
-    const toutVoirExists = await page.$(toutVoirSelector);
+    try {
+      await page.waitForSelector('div.event-counter span.pointer', { timeout: 5000 });
+      await page.click('div.event-counter span.pointer');
+      console.log('✅ Clic sur "Tout voir Football"');
+      await delay(3000);
+    } catch {
+      console.log('ℹ️ "Tout voir Football" non trouvé ou déjà sur la page');
+    }
+
+    // Étape 3: Sélection des paris selon la stratégie
+    let result;
     
-    if (toutVoirExists) {
-      await page.click("div.event-counter span.pointer");
-      console.log('✅ Clic sur "Tout voir Football" effectué.');
-
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      // Étape 3: Sélection des paris
-      const result = await smartBetting(
+    if (config.strategie === "1") {
+      console.log("🎯 Stratégie: Double Chance (Conservateur)");
+      console.log("📋 Recherche des meilleurs paris Double Chance...\n");
+      
+      result = await smartDoubleChanceBetting(
         page, 
         config.coteTarget, 
-        config.strategie, 
         config.coteMaxPari, 
         config.modeAleatoire
       );
-      
-      console.log("\n" + "=".repeat(60));
-      console.log("📊 RÉSULTATS DE LA SÉLECTION");
-      console.log("=".repeat(60));
-      console.log(`🎯 Objectif: ${config.coteTarget}x`);
-      console.log(`📈 Total atteint: ${result.totalOdds.toFixed(2)}x`);
-      console.log(`⚖️ Cote max/pari: ${config.coteMaxPari}x`);
-      console.log(`⚽ Matchs sélectionnés: ${result.selectedMatches}`);
-      console.log(`🎮 Mode utilisé: ${result.mode}`);
-      console.log(`🎯 Stratégie: ${result.strategy}`);
-      console.log(`✅ Succès: ${result.success ? 'OUI 🎉' : 'NON ⚠️'}`);
-      console.log(`📊 Efficacité: ${result.efficiency}%`);
-      console.log("=".repeat(60));
+    } else {
+      console.log("⚠️ Seule la stratégie Double Chance (Option 1) est implémentée dans cette version");
+      await arreterApplication(browser, false);
+      return;
+    }
+    
+    console.log("\n" + "=".repeat(60));
+    console.log("📊 RÉSULTATS DE LA SÉLECTION");
+    console.log("=".repeat(60));
+    console.log(`🎯 Stratégie: ${result.strategy}`);
+    console.log(`🎯 Objectif: ${config.coteTarget}x`);
+    console.log(`📈 Total atteint: ${result.totalOdds.toFixed(2)}x`);
+    console.log(`⚖️ Cote max/pari: ${config.coteMaxPari}x`);
+    console.log(`⚽ Matchs sélectionnés: ${result.selectedMatches}`);
+    console.log(`🎮 Mode utilisé: ${config.modeAleatoire ? 'ALÉATOIRE' : 'SÉQUENTIEL'}`);
+    console.log(`✅ Succès: ${result.success ? 'OUI 🎉' : 'NON ⚠️'}`);
+    console.log(`📊 Efficacité: ${result.efficiency}%`);
+    console.log("=".repeat(60));
 
-      // Étape 4: Placement de mise (si objectif atteint)
-      if (result.success && config.placementAuto) {
-        console.log("\n🎰 PLACEMENT AUTOMATIQUE DE LA MISE");
-        const miseReussie = await placerMise(page, config.montantMise);
-        
-        if (miseReussie) {
-          console.log("🎉 SUCCÈS COMPLET ! Pari placé automatiquement !");
-          await arreterApplication(browser, true);
-        } else {
-          console.log("⚠️ Erreur de placement - Vérifiez manuellement");
-          console.log("💭 Le pari pourrait être en attente ou rejeté");
-          await arreterApplication(browser, false);
-        }
-      } else if (result.success && !config.placementAuto) {
-        console.log("\n💰 Objectif atteint ! Placement manuel activé");
-        console.log(`Placez votre mise de ${config.montantMise} manuellement`);
-        console.log("⏳ Le navigateur reste ouvert pour placement manuel");
-        console.log("Appuyez sur Ctrl+C pour fermer quand terminé");
+    // Étape 4: Placement de mise (si objectif atteint)
+    if (result.success && config.placementAuto) {
+      console.log("\n🎰 PLACEMENT AUTOMATIQUE DE LA MISE");
+      const miseReussie = await placerMise(page, config.montantMise);
+      
+      if (miseReussie) {
+        console.log("🎉 SUCCÈS COMPLET ! Pari placé automatiquement !");
+        await arreterApplication(browser, true);
       } else {
-        console.log("\n⚠️ Objectif non atteint, mais paris sélectionnés.");
-        console.log("💭 Considérez ajuster les paramètres pour la prochaine fois.");
+        console.log("⚠️ Erreur de placement - Vérifiez manuellement");
+        console.log("💭 Le pari pourrait être en attente ou rejeté");
         await arreterApplication(browser, false);
       }
-
+    } else if (result.success && !config.placementAuto) {
+      console.log("\n💰 Objectif atteint ! Placement manuel activé");
+      console.log(`Placez votre mise de ${config.montantMise} manuellement`);
+      console.log("⏳ Le navigateur reste ouvert pour placement manuel");
+      console.log("Appuyez sur Ctrl+C pour fermer quand terminé");
     } else {
-      console.log('❌ "Tout voir Football" non trouvé.');
+      console.log("\n⚠️ Objectif non atteint, mais paris sélectionnés.");
+      console.log("💭 Considérez ajuster les paramètres pour la prochaine fois.");
       await arreterApplication(browser, false);
     }
 
   } catch (error) {
     console.error("🚨 Erreur critique:", error.message);
-    await arreterApplication(browser, false);
+    if (browser) await browser.close();
+    process.exit(1);
   }
 })();
