@@ -38,38 +38,38 @@ function demanderOption() {
   });
 
   // 3. Cliquer sur le bouton Connexion
-  await page.waitForSelector('a.button.button-accent[href="/login"]');
-  await page.click('a.button.button-accent[href="/login"]');
+ // await page.waitForSelector('a.button.button-accent[href="/login"]');
+  //await page.click('a.button.button-accent[href="/login"]');
 
   // 4. Attendre que le popup de connexion apparaisse et remplir les infos
   // Vous devrez adapter ces sélecteurs selon le HTML réel du popup
-  await page.waitForSelector(".country-code"); // Sélecteur du champ code pays
-  await page.type(".country-code", process.env.COUNTRY_CODE);
+  //await page.waitForSelector(".country-code"); // Sélecteur du champ code pays
+  //await page.type(".country-code", process.env.COUNTRY_CODE);
 
-  await page.waitForSelector("#login-form-phoneNumber"); // Sélecteur du champ email
-  await page.type("#login-form-phoneNumber", process.env.PHONE_NUMBER);
+  // await page.waitForSelector("#login-form-phoneNumber"); // Sélecteur du champ email
+  // await page.type("#login-form-phoneNumber", process.env.PHONE_NUMBER);
 
-  await page.waitForSelector("#login-form-password-input"); // Sélecteur du champ mot de passe
-  await page.type("#login-form-password-input", process.env.PASSWORD);
+  // await page.waitForSelector("#login-form-password-input"); // Sélecteur du champ mot de passe
+  // await page.type("#login-form-password-input", process.env.PASSWORD);
 
   // 5. Soumettre le formulaire
-  await page.click('input[data-test-id="logInButton"]'); // Sélecteur du bouton de soumission (input submit)
+  // await page.click('input[data-test-id="logInButton"]'); // Sélecteur du bouton de soumission (input submit)
 
   // Attendre la connexion (vous pouvez vérifier un élément qui n'apparaît qu'après connexion)
-  await page.waitForSelector(".balance", { timeout: 5000 });
+  // await page.waitForSelector(".balance", { timeout: 5000 });
 
-  console.log("Connexion réussie!");
+  // console.log("Connexion réussie!");
 
   // Récupérer et afficher le contenu de l'élément .count
   // Attendre et récupérer le texte du span
-  const solde = await page.$eval("span.button.balance", (span) =>
-    span.textContent.trim()
-  );
-  console.log("Solde:", solde);
+  // const solde = await page.$eval("span.button.balance", (span) =>
+  //   span.textContent.trim()
+  // );
+  // console.log("Solde:", solde);
 
   // Extraire uniquement la partie numérique du solde
-  const match = solde.match(/[\d,.]+/);
-  const soldeNum = match ? parseFloat(match[0].replace(",", ".")) : 0;
+  // const match = solde.match(/[\d,.]+/);
+  // const soldeNum = match ? parseFloat(match[0].replace(",", ".")) : 0;
 
   async function autoScroll(page) {
     await page.evaluate(async () => {
@@ -88,34 +88,27 @@ function demanderOption() {
     });
     await delay(4000); // Longue attente après défilement
   }
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function safeClickAndPlaceBet(targetOdds = 5000, stakeAmount = 100) {
     const MAX_ODDS = 2;
     let selectedMatches = 0;
     let consecutiveNoMatches = 0;
     const MAX_CONSECUTIVE_NO_MATCHES = 10;
-
-    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    let currentTotal = 1;
+    const selectedOdds = []; // Nous allons stocker les cotes sélectionnées ici
 
     // Phase 1: Sélection des paris
     while (true) {
       let foundValidMatch = false;
-      let currentTotal = 1;
-
+      
+      console.log("🔢 Total calculé:", currentTotal.toFixed(2));
+        
       try {
-        // Vérifier le total actuel
-        try {
-          currentTotal = await page.$eval(
-            '[data-test-id="totalOdds"]',
-            (el) => parseFloat(el.textContent.replace(",", ".")) || 1
-          );
-          console.log(
-            `📊 Total actuel: ${currentTotal.toFixed(2)}/${targetOdds}`
-          );
-
-          if (currentTotal >= targetOdds) break;
-        } catch (error) {
-          console.log("ℹ️ TotalOdds non disponible");
+        // Vérifier si l'objectif est atteint
+        if (currentTotal >= targetOdds) {
+          console.log("🎯 Objectif atteint !");
+          break;
         }
 
         // Trouver et traiter les matchs
@@ -132,7 +125,7 @@ function demanderOption() {
 
             const odds = await bet.$$eval(
               ".event-odds span:not(.svg-icon)",
-              (els) => els.map((el) => parseFloat(el.textContent) || Infinity)
+              (els) => els.map((el) => parseFloat(el.textContent.replace(",", ".")) || Infinity)
             );
 
             if (odds.length < 3 || Math.min(odds[0], odds[2]) > MAX_ODDS)
@@ -154,12 +147,17 @@ function demanderOption() {
               );
 
               if (isNowSelected) {
+                selectedOdds.push(bestOdd); // Ajouter la cote à notre liste
+                currentTotal = selectedOdds.reduce((total, odd) => total * odd, 1); // Calculer le nouveau total
                 selectedMatches++;
                 foundValidMatch = true;
                 consecutiveNoMatches = 0;
                 console.log(
-                  `✅ Paris ${selectedMatches}: Côte ${bestOdd.toFixed(2)}`
+                  `✅ Paris ${selectedMatches}: Côte ${bestOdd.toFixed(2)} | Total: ${currentTotal.toFixed(2)}`
                 );
+                
+                // Vérifier à nouveau l'objectif après chaque sélection
+                if (currentTotal >= targetOdds) break;
               }
             }
           } catch (error) {
@@ -188,71 +186,29 @@ function demanderOption() {
       }
     }
 
-    // Phase 2: Placement de la mise
+    // Vérification finale avec le vrai total du site (optionnel)
+    let finalTotal = currentTotal;
     try {
-      console.log("💵 Préparation de la mise...");
-
-      // 1. Remplir le champ de mise
-      await page.waitForSelector("#betslip-form-stake-input", {
-        timeout: 5000,
-      });
-      await page.focus("#betslip-form-stake-input");
-      await page.keyboard.down("Control");
-      await page.keyboard.press("A");
-      await page.keyboard.up("Control");
-      await page.keyboard.press("Backspace");
-      await page.type("#betslip-form-stake-input", stakeAmount.toString(), {
-        delay: 100,
-      });
-
-      console.log(`💰 Montant saisi: ${stakeAmount}`);
-
-      // 2. Cliquer sur le bouton de pari
-      await page.waitForSelector(".place-bet.button-primary", {
-        timeout: 5000,
-      });
-      await page.click(".place-bet.button-primary");
-
-      console.log("🎰 Pari en cours...");
-      await delay(3000); // Attente confirmation
-
-      // 3. Vérification du succès
-      const isSuccess = await page
-        .evaluate(() => {
-          const successMsg = document.querySelector(".bet-confirmation");
-          return (
-            !!successMsg && getComputedStyle(successMsg).display !== "none"
-          );
-        })
-        .catch(() => false);
-
-      if (isSuccess) {
-        console.log("✔️ Pari effectué avec succès!");
-      } else {
-        console.log("❌ Échec du placement de pari");
-      }
-    } catch (betError) {
-      console.error("💥 Erreur lors du placement du pari:", betError.message);
-    }
-
-    // Résultat final
-    const finalTotal = await page
-      .$eval(
+      const siteTotal = await page.$eval(
         '[data-test-id="totalOdds"]',
-        (el) => parseFloat(el.textContent.replace(",", ".")) || 1
-      )
-      .catch(() => 1);
+        (el) => parseFloat(el.textContent.replace(/[^\d,]/g, '').replace(",", ".")) || 1
+      );
+      console.log(`🔍 Total affiché sur le site: ${siteTotal.toFixed(2)}`);
+      finalTotal = Math.max(currentTotal, siteTotal); // Prendre le plus grand des deux
+    } catch (error) {
+      console.log("ℹ️ Impossible de vérifier le total sur le site");
+    }
 
     return {
       success: finalTotal >= targetOdds,
       totalOdds: finalTotal,
       selectedMatches,
-      betPlaced: true,
+      betPlaced: selectedMatches > 0,
     };
-  }
+}
 
-  if (soldeNum > 0) {
-    console.log("Le solde est supérieur à 0:", soldeNum);
+  // if (soldeNum > 0) {
+    // console.log("Le solde est supérieur à 0:", soldeNum);
 
     // Après la connexion et la récupération du solde
 
@@ -289,10 +245,10 @@ function demanderOption() {
     } else {
       console.log('"Tout voir Football" non trouvé.');
     }
-  } else {
-    console.log("Le solde est nul ou négatif:", soldeNum);
-    // ... arrêter ou autre action ...
-  }
+  // } else {
+  //   console.log("Le solde est nul ou négatif:", soldeNum);
+  //   // ... arrêter ou autre action ...
+  // }
 
   // Fermer le navigateur
   //await browser.close();
