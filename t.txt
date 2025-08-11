@@ -1,0 +1,100 @@
+console.log(`\n📍 Test ${i + 1}/${nbMatchs}`);
+      console.log(`🎯 Cible: Match numéro ${i + 1}`);
+      
+      // Attendre que les matchs soient visibles
+      await page.waitForSelector('[data-test-id="bpEvent"]', { timeout: 10000 });
+      
+      // Récupérer tous les matchs disponibles
+      const matches = await page.$('[data-test-id="bpEvent"]');
+      console.log(`📊 Total de matchs trouvés: ${matches.length}`);
+      
+      if (i >= matches.length) {
+        console.log(`⚠️ Plus assez de matchs (demandé: ${i + 1}, disponible: ${matches.length})`);
+        break;
+      }
+      
+      // Récupérer les informations du match
+      const matchInfo = await page.evaluate((index) => {
+        const matchElement = document.querySelectorAll('[data-test-id="bpEvent"]')[index];
+        if (!matchElement) return null;
+        
+        const eventId = matchElement.getAttribute('data-event-id');
+        const linkElement = matchElement.querySelector('a[href^="/event/"]');
+        const href = linkElement ? linkElement.getAttribute('href') : null;
+        
+        // Essayer de récupérer le nom des équipes
+        const teamElements = matchElement.querySelectorAll('.team-name, .event-name, .participant-name');
+        const teamNames = Array.from(teamElements).map(el => el.textContent.trim()).join(' vs ');
+        
+        return {
+          eventId,
+          href,
+          teamNames: teamNames || `Match ${index + 1}`,
+          fullUrl: href ? `https://www.betpawa.cm${href}` : null
+        };
+      }, i);
+      
+      if (!matchInfo || !matchInfo.href) {
+        console.log(`❌ Impossible de récupérer les infos du match ${i + 1}`);
+        continue;
+      }
+      
+      console.log(`⚽ Match: ${matchInfo.teamNames}`);
+      console.log(`🆔 Event ID: ${matchInfo.eventId}`);
+      console.log(`🔗 URL: ${matchInfo.fullUrl}`);
+      
+      // Cliquer sur le lien du match
+      console.log(`👆 Clic sur le lien du match...`);
+      const matchLink = await matches[i].$('a[href^="/event/"]');
+      
+      if (matchLink) {
+        await matchLink.click();
+      
+      // Attendre le chargement de la page du match
+      console.log(`⏳ Attente du chargement (${delai/1000}s)...`);
+      await new Promise(resolve => setTimeout(resolve, delai));
+      
+      // Vérifier si on est bien sur la page du match
+      const isMatchPage = await page.$('.back-button').then(el => !!el).catch(() => false);
+      
+      if (isMatchPage) {
+        console.log(`✅ Navigation réussie vers: ${matchName}`);
+        
+        // Récupérer l'URL actuelle pour vérification
+        const currentUrl = page.url();
+        console.log(`🌐 URL actuelle: ${currentUrl.substring(0, 60)}...`);
+        
+        // Cliquer sur le bouton retour
+        console.log(`🔙 Clic sur le bouton retour...`);
+        await page.click('.back-button');
+        
+        // Attendre le retour à la liste
+        console.log(`⏳ Attente du retour (${delai/1000}s)...`);
+        await new Promise(resolve => setTimeout(resolve, delai));
+        
+        // Vérifier qu'on est bien revenu
+        const backToList = await page.$('.event-counter').then(el => !!el).catch(() => false);
+        
+        if (backToList) {
+          console.log(`✅ Retour réussi à la liste des matchs`);
+        } else {
+          console.log(`⚠️ Pas sûr d'être revenu à la liste`);
+        }
+        
+      } else {
+        console.log(`❌ Échec: Pas arrivé sur la page du match`);
+        
+        // Tenter de revenir quand même
+        try {
+          const backButton = await page.$('.back-button');
+          if (backButton) {
+            await backButton.click();
+            await new Promise(resolve => setTimeout(resolve, delai));
+          }
+        } catch (e) {
+          console.log(`⚠️ Impossible de revenir: ${e.message}`);
+        }
+      }
+
+      console.log(`✅ Test ${i + 1} terminé`);
+      console.log("-".repeat(30));
