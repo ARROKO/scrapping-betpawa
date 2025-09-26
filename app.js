@@ -1,3 +1,4 @@
+require('dotenv').config();
 const puppeteer = require('puppeteer');
 const readline = require('readline');
 
@@ -18,22 +19,157 @@ async function run() {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     rl.question(q, (ans) => { rl.close(); resolve(ans.trim()); });
   });
+  const interactive = process.env.NON_INTERACTIVE !== '1';
 
-  let targetCote = 0;
-  while (!targetCote || isNaN(targetCote) || targetCote < 2) {
-    const input = await ask('🎯 Cote totale à atteindre (ex: 10) : ');
-    targetCote = parseFloat((input || '').replace(',', '.'));
-    if (!targetCote || isNaN(targetCote) || targetCote < 2) {
-      console.log("❌ Entrez un nombre valide ≥ 2");
+  let targetCote = parseFloat(((process.env.TARGET_COTE || '') + '').replace(',', '.'));
+  if (interactive || !targetCote || isNaN(targetCote) || targetCote < 2) {
+    targetCote = 0;
+    while (!targetCote || isNaN(targetCote) || targetCote < 2) {
+      const input = await ask('🎯 Cote totale à atteindre (ex: 10) : ');
+      targetCote = parseFloat((input || '').replace(',', '.'));
+      if (!targetCote || isNaN(targetCote) || targetCote < 2) {
+        console.log("❌ Entrez un nombre valide ≥ 2");
+      }
     }
   }
 
-  let maxOddPerSelection = Infinity;
-  const maxInput = await ask('⚖️ Limite de cote par sélection (ex: 2.0) ou ENTER pour aucune limite : ');
-  if (maxInput) {
-    const parsed = parseFloat(maxInput.replace(',', '.'));
-    if (!isNaN(parsed) && parsed >= 1.01) maxOddPerSelection = parsed;
+  // ——————————————————————————————————————————————————————————
+  // Choix du marché (en amont)
+  console.log('\n' + '═'.repeat(50));
+  console.log('🎯 Configuration du marché');
+  console.log('1) DC — Double Chance (1X, X2, 12)');
+  console.log('2) P/M — Plus / Moins (Over / Under)');
+  console.log('═'.repeat(50));
+  let marketChoice = '1';
+  if (interactive) {
+    const marketInput = await ask('👉 Votre choix (1 ou 2) : ');
+    if (marketInput === '2') marketChoice = '2';
+  } else {
+    const envMarket = (process.env.MARKET_ID || '').toUpperCase();
+    marketChoice = envMarket === 'P/M' ? '2' : '1';
   }
+
+  // ——————————————————————————————————————————————————————————
+  // Login & mise (console)
+  let useAutoLogin = true;
+  if (interactive) {
+    console.log('\n' + '═'.repeat(50));
+    console.log('🔐 Connexion');
+    console.log('1) Connexion automatique (.env)');
+    console.log('2) Connexion manuelle (je me connecte moi-même)');
+    console.log('═'.repeat(50));
+    const loginChoice = await ask('👉 Votre choix (1 ou 2) : ');
+    if (loginChoice === '2') useAutoLogin = false;
+  } else {
+    const v = (process.env.AUTO_LOGIN || '1').toLowerCase();
+    useAutoLogin = v === '1' || v === 'true' || v === 'yes' || v === 'o';
+  }
+
+  let placementAuto = false;
+  let stakeAmount = 0;
+  if (interactive) {
+    console.log('\n' + '═'.repeat(50));
+    console.log('🎰 Placement de mise');
+    console.log('═'.repeat(50));
+    const placeAutoInput = await ask('Placer automatiquement après avoir atteint la cible ? (o/n) : ');
+    if ((placeAutoInput || '').toLowerCase().startsWith('o')) placementAuto = true;
+    if (placementAuto) {
+      const stakeIn = await ask('💰 Montant de la mise (ex: 500) : ');
+      const parsedStake = parseFloat((stakeIn || '').replace(',', '.'));
+      stakeAmount = !isNaN(parsedStake) && parsedStake > 0 ? parsedStake : 0;
+    }
+  } else {
+    const v = (process.env.PLACEMENT_AUTO || '0').toLowerCase();
+    placementAuto = v === '1' || v === 'true' || v === 'yes' || v === 'o';
+    stakeAmount = parseFloat(((process.env.STAKE_AMOUNT || '') + '').replace(',', '.')) || 0;
+  }
+
+  // Déterminer l’URL en fonction du marché
+  // DC: marketId=DC ; P/M (Over/Under): marketId=P/M
+  const MARKET_ID = marketChoice === '2' ? 'P/M' : 'DC';
+  const targetUrl = `https://www.betpawa.cm/events?marketId=${MARKET_ID}&categoryId=2`;
+
+  // ——————————————————————————————————————————————————————————
+  // Mode aléatoire (échantillonnage d'évènements non séquentiel)
+  let randomMode = false;
+  let randomSkipRate = 0.5;
+  if (interactive) {
+    console.log('\n' + '═'.repeat(50));
+    console.log('🎛️ Mode d\'échantillonnage des matchs');
+    console.log('• Normal: traite les matchs dans l\'ordre d\'affichage');
+    console.log('• Aléatoire: saute des matchs au hasard pour éviter l\'ordre strict');
+    console.log('═'.repeat(50));
+    const rndInput = await ask('Activer la sélection aléatoire des matchs ? (o/n) : ');
+    if ((rndInput || '').trim().toLowerCase().startsWith('o')) randomMode = true;
+  } else {
+    const v = (process.env.RANDOM_MODE || '0').toLowerCase();
+    randomMode = v === '1' || v === 'true' || v === 'yes' || v === 'o';
+    const rs = parseFloat(process.env.RANDOM_SKIP_RATE || '0.5');
+    if (!isNaN(rs) && rs >= 0 && rs <= 1) randomSkipRate = rs;
+  }
+
+  // ——————————————————————————————————————————————————————————
+  // Paramètres spécifiques P/M (Over/Under)
+  let ouTargetLine = 2.5;
+  let ouPriority = 'over'; // 'over' | 'under'
+  if (MARKET_ID === 'P/M') {
+    if (interactive) {
+      console.log('\n' + '═'.repeat(50));
+      console.log('⚙️  Paramètres P/M (Over/Under)');
+      console.log('Exemples de lignes: 0.5, 1.5, 2.5, 3.5, 4.5, 5.5');
+      console.log('═'.repeat(50));
+      const lineInput = await ask('Ligne P/M cible (ex: 2.5) : ');
+      const parsedLine = parseFloat((lineInput || '').replace(',', '.'));
+      if (!isNaN(parsedLine) && parsedLine >= 0.5) ouTargetLine = parsedLine;
+      const ouPref = await ask('Priorité de côté (1=Over/Plus d\'abord, 2=Under/Moins d\'abord) : ');
+      if (ouPref === '2') ouPriority = 'under';
+    } else {
+      const parsedLine = parseFloat(((process.env.OU_LINE || '') + '').replace(',', '.'));
+      if (!isNaN(parsedLine) && parsedLine >= 0.5) ouTargetLine = parsedLine;
+      const pr = (process.env.OU_PRIORITY || 'over').toLowerCase();
+      ouPriority = pr === 'under' ? 'under' : 'over';
+    }
+  }
+
+  // ——————————————————————————————————————————————————————————
+  // Limite de cote par sélection
+  let maxOddPerSelection = Infinity;
+  if (interactive) {
+    const maxInput = await ask('⚖️ Limite de cote par sélection (ex: 2.0) ou ENTER pour aucune limite : ');
+    if (maxInput) {
+      const parsed = parseFloat(maxInput.replace(',', '.'));
+      if (!isNaN(parsed) && parsed >= 1.01) maxOddPerSelection = parsed;
+    }
+  } else {
+    const v = parseFloat(((process.env.MAX_ODD_PER_SELECTION || '') + '').replace(',', '.'));
+    if (!isNaN(v) && v >= 1.01) maxOddPerSelection = v;
+  }
+
+  // Mode de sélection (DC uniquement)
+  // 1=Priorité (1X>X2>12), 2=Plus petite cote admissible, 3=Rotation
+  let selectionMode = 'priority'; // 'priority' | 'min' | 'round'
+  if (MARKET_ID !== 'P/M') {
+    if (interactive) {
+      const modeInput = await ask('🎛️ Mode de choix (1=Priorité 1X>X2>12, 2=Plus petite cote, 3=Rotation 1X, puis X2, puis 12) : ');
+      if (modeInput === '2') selectionMode = 'min';
+      else if (modeInput === '3') selectionMode = 'round';
+    } else {
+      const sm = (process.env.SELECTION_MODE || 'priority').toLowerCase();
+      if (['priority','min','round'].includes(sm)) selectionMode = sm;
+    }
+  }
+
+  // Petit récap de config
+  console.log('\n' + '➤'.repeat(20));
+  console.log(`Marché: ${marketChoice === '2' ? 'P/M (Over/Under)' : 'DC (Double Chance)'}`);
+  if (MARKET_ID !== 'P/M') {
+    console.log(`Mode de sélection: ${selectionMode}`);
+  }
+  console.log(`Mode aléatoire: ${randomMode ? `ON (skip≈${Math.round(randomSkipRate*100)}%)` : 'OFF'}`);
+  if (MARKET_ID === 'P/M') {
+    console.log(`P/M — Ligne: ${ouTargetLine} | Priorité: ${ouPriority.toUpperCase()}`);
+  }
+  console.log(''.padEnd(20, '➤'));
 
   let currentTotal = 1.0;
   let reachedTarget = false;
@@ -48,8 +184,158 @@ async function run() {
   const page = await browser.newPage();
 
   try {
-    console.log('➡️  Navigation vers:', TEST_URL);
-    await page.goto(TEST_URL, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    // Helpers login & solde & placement
+    async function waitForBalance(page, timeoutMs = 20000) {
+      try {
+        await page.waitForFunction(() => {
+          return document.querySelector('span.button.balance') !== null ||
+                 document.querySelector('.balance-amount') !== null ||
+                 document.querySelector('.header-buttons-authenticated .button.balance') !== null;
+        }, { timeout: timeoutMs });
+        return true;
+      } catch (_) { return false; }
+    }
+
+    async function loginAuto(page) {
+      if (!process.env.COUNTRY_CODE || !process.env.PHONE_NUMBER || !process.env.PASSWORD) {
+        console.log('❌ .env incomplet (COUNTRY_CODE, PHONE_NUMBER, PASSWORD)');
+        return false;
+      }
+      try {
+        await page.waitForSelector('a.button.button-accent[href="/login"]', { timeout: 15000 });
+        await page.click('a.button.button-accent[href="/login"]');
+        await delay(800);
+        await page.waitForSelector('.country-code', { timeout: 10000 });
+        await page.type('.country-code', String(process.env.COUNTRY_CODE));
+        await page.waitForSelector('#login-form-phoneNumber', { timeout: 10000 });
+        await page.type('#login-form-phoneNumber', String(process.env.PHONE_NUMBER));
+        await page.waitForSelector('#login-form-password-input', { timeout: 10000 });
+        await page.type('#login-form-password-input', String(process.env.PASSWORD));
+        await page.click('input[data-test-id="logInButton"]');
+        await delay(2000);
+        const ok = await waitForBalance(page, 25000);
+        console.log(ok ? '✅ Connexion réussie' : '❌ Connexion non confirmée');
+        return ok;
+      } catch (e) {
+        console.log('❌ Erreur login auto:', e.message);
+        return false;
+      }
+    }
+
+    async function getBalance(page) {
+      try {
+        const val = await page.evaluate(() => {
+          const selectors = [
+            'span.button.balance',
+            '.header-buttons-authenticated .button.balance',
+            '.balance-amount'
+          ];
+          let el = null;
+          for (const s of selectors) { el = document.querySelector(s); if (el) break; }
+          if (!el) return null;
+          const txt = (el.textContent || '').trim();
+          const m = txt.match(/[\d,.]+/);
+          if (!m) return null;
+          const num = parseFloat(m[0].replace(/,/g, '.'));
+          return isNaN(num) ? null : num;
+        });
+        return val;
+      } catch (_) { return null; }
+    }
+
+    async function placeBet(page, amount) {
+      try {
+        // 1) Afficher le betslip si nécessaire
+        try {
+          await page.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('button, .button, [role="button"], .betslip-toggle, .betslip-button'));
+            const open = btns.find(b => /betslip|coupon|panier|pari/i.test(b.className || '') || /coupon|pari|betslip/i.test((b.textContent||'')));
+            if (open) open.click();
+          });
+          await delay(600);
+        } catch (_) {}
+
+        // 2) Cocher "Accepter les changements de cote" si présent
+        try {
+          await page.evaluate(() => {
+            const cb = document.querySelector('#acceptAnyPrice');
+            if (cb && !cb.checked) {
+              const lab = document.querySelector('label[for="acceptAnyPrice"]');
+              if (lab) lab.click(); else cb.click();
+            }
+          });
+          await delay(200);
+        } catch (_) {}
+
+        // 3) Renseigner la mise dans #betslip-form-stake-input (name="stake-input")
+        const typed = await page.evaluate((amt) => {
+          const input = document.querySelector('#betslip-form-stake-input') || document.querySelector('input[name="stake-input"]');
+          if (!input) return false;
+          const val = String(amt);
+          input.focus();
+          input.value = '';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.value = val;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
+          return true;
+        }, amount);
+        if (!typed) {
+          console.log('❌ Impossible de renseigner la mise (champ introuvable)');
+          return false;
+        }
+        await delay(700);
+
+        // 4) Attendre que le bouton "Placer un pari" devienne actif, puis cliquer
+        const btnSelector = '[data-test-id="btnPlaceBet"] input.place-bet.button-primary';
+        await page.waitForSelector(btnSelector, { timeout: 8000 });
+        await page.waitForFunction((sel) => {
+          const btn = document.querySelector(sel);
+          return !!btn && !btn.disabled;
+        }, { timeout: 12000 }, btnSelector);
+
+        // Scroll to button and click
+        await page.evaluate((sel) => {
+          const btn = document.querySelector(sel);
+          btn?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, btnSelector);
+        await delay(200);
+        await page.click(btnSelector);
+
+        // 5) Attendre confirmation / vidage betslip / totalOdds ~ 1
+        try {
+          await page.waitForFunction(() => {
+            const okMsg = Array.from(document.querySelectorAll('*')).some(n => /par(i|y) (plac|réussi)|bet placed|succès/i.test(n.textContent || ''));
+            const items = document.querySelectorAll('.betslip-bet');
+            const totalOdds = document.querySelector('.bet-details .bet-details-total-odds .current-value[data-test-id="totalOdds"]');
+            const n = totalOdds ? parseFloat((totalOdds.textContent||'').replace(',', '.')) : 0;
+            return okMsg || items.length === 0 || (n && n <= 1.05);
+          }, { timeout: 20000 });
+        } catch (_) {}
+        return true;
+      } catch (e) {
+        console.log('❌ Erreur placement:', e.message);
+        return false;
+      }
+    }
+
+    // 1) Aller à l'accueil et se connecter selon choix
+    console.log('➡️  Navigation vers: https://www.betpawa.cm');
+    await page.goto('https://www.betpawa.cm', { waitUntil: 'domcontentloaded', timeout: 120000 });
+    if (useAutoLogin) {
+      const ok = await loginAuto(page);
+      if (!ok) console.log('ℹ️ Vous pouvez vous connecter manuellement si besoin.');
+    } else {
+      console.log('⏳ Connectez-vous manuellement (UI). Détection du solde en cours...');
+      await waitForBalance(page, 120000);
+    }
+    const solde = await getBalance(page);
+    if (solde != null) console.log(`💰 Solde détecté: ${solde}`);
+
+    // 2) Aller vers le marché ciblé
+    console.log('➡️  Navigation vers:', targetUrl);
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
     // Helper pour lire la cote totale depuis le betslip (source de vérité UI)
     async function readTotalOdds() {
@@ -87,7 +373,7 @@ async function run() {
     async function ensureOnListing() {
       const onListing = await page.evaluate(() => location.pathname.startsWith('/events'));
       if (!onListing) {
-        await page.goto(TEST_URL, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
         await delay(1000);
         await disableEventLinks();
       }
@@ -126,10 +412,13 @@ async function run() {
 
       let prevCount = 0;
       let idle = 0;
-      let lastProcessedCount = 0; // nombre d'évènements déjà considérés dans les boucles précédentes
+      let lastProcessedCount = 0; // (obsolète) — on va balayer toute la liste en s'appuyant sur processedEventIds
       const processedEventIds = new Set();
       const MAX_SELECT = MAX_INTERLEAVED_SELECT; // sélection maximum pendant le scroll
       let totalSelected = 0;
+      const pickOrder = ['1x', 'x2', '12'];
+      let rrIndex = 0; // round-robin index across calls
+      let lastSelectedEventId = null; // pour se recentrer avant la prochaine vague de sélection
 
       for (let i = 0; i < MAX_LOOPS && idle < IDLE_THRESHOLD && !reachedTarget; i++) {
         await ensureOnListing();
@@ -185,18 +474,50 @@ async function run() {
         // Intercaler la sélection pendant le scroll pour les nouveaux évènements
         if (totalSelected < MAX_SELECT && !reachedTarget) {
           await disableEventLinks();
-          // Déterminer la fenêtre de nouveaux évènements à traiter (entre lastProcessedCount et count)
-          let startIndex = lastProcessedCount;
-          if (startIndex < 0) startIndex = 0;
-          if (startIndex > count) startIndex = Math.max(0, count - 1);
+          // Balayer toute la liste (0..count) et s'appuyer sur processedEventIds pour éviter les doublons
+          let startIndex = 0;
           const endIndex = count;
-          const targets = await page.evaluate((processedList, startIdx, endIdx) => {
+          // Si on a déjà sélectionné un évènement auparavant, se recentrer dessus pour reprendre correctement
+          if (lastSelectedEventId) {
+            try {
+              await page.evaluate((eid) => {
+                const container = document.querySelector('.section-middle .scrollable-content') || document.scrollingElement || document.body;
+                const link = document.querySelector(`a[href^="/event/${'${'}${'}'}${''}"]`); // placeholder to maintain tool format
+              }, '');
+            } catch (_) {}
+            // Refaire proprement le recentrage (le format ci-dessus ne permet pas l'interpolation), on utilise une seconde évaluation dédiée
+            try {
+              const eid = lastSelectedEventId;
+              await page.evaluate((id) => {
+                const container = document.querySelector('.section-middle .scrollable-content') || document.documentElement || document.body;
+                // cibler directement le conteneur d'évènement par data-event-id (plus robuste)
+                const target = document.querySelector(`.game-events-container.prematch[data-event-id="${id}"]`) || document.querySelector(`a[href^="/event/${id}"]`);
+                if (target && container && typeof container.scrollTo === 'function') {
+                  const cRect = container.getBoundingClientRect();
+                  const tRect = target.getBoundingClientRect();
+                  const top = (tRect.top - cRect.top) + (container.scrollTop || 0) - 180; // offset pour avoir un peu de marge au-dessus
+                  container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+                } else if (target) {
+                  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }, eid);
+              await delay(350);
+            } catch (_) {}
+          }
+          const targetsPayload = await page.evaluate((processedList, startIdx, endIdx, maxOdd, mode, order, rrStart, rndOn, rndRate, market, ouLine, ouSidePriority) => {
             function norm(s) { return (s || '').trim().toLowerCase(); }
-            const pickOrder = ['1x', 'x2', '12'];
+            const pickOrder = Array.isArray(order) && order.length ? order : ['1x','x2','12'];
             const newTargets = [];
+            let rrIndexLocal = typeof rrStart === 'number' ? rrStart : 0;
             const events = Array.from(document.querySelectorAll('.game-events-container.prematch'));
             const slice = events.slice(Math.min(startIdx, events.length), Math.min(endIdx, events.length));
             for (const ev of slice) {
+              // Skipper aléatoirement pour tous les marchés si activé
+              if (rndOn) {
+                if (Math.random() < (typeof rndRate === 'number' ? rndRate : 0.5)) {
+                  continue;
+                }
+              }
               const link = ev.querySelector('a[href^="/event/"]');
               let eventId = null;
               if (link) {
@@ -208,26 +529,93 @@ async function run() {
               const wraps = ev.querySelectorAll('.betline-list .event-bet-wrapper.bet-price .event-bet .anchor-wrap');
               if (!wraps || wraps.length === 0) continue;
 
-              let chosen = null;
-              for (const code of pickOrder) {
-                chosen = Array.from(wraps).find(w => {
+              let chosenWrap = null;
+              if (market === 'P/M') {
+                // P/M: parser 'Plus de X.Y' / 'Moins de X.Y' et filtrer par ligne
+                function parseOU(node) {
+                  const raw = (node.querySelector('.event-selection')?.textContent || '').trim();
+                  const low = raw.toLowerCase();
+                  // Supporte variations (fr/en), on cherche nombre
+                  const m = low.match(/([0-9]+(?:[\.,][0-9]+)?)/);
+                  const line = m ? parseFloat(m[1].replace(',', '.')) : NaN;
+                  const side = low.includes('moins') || low.includes('under') ? 'under' : (low.includes('plus') || low.includes('over') ? 'over' : null);
+                  return { side, line, raw };
+                }
+                const eps = 1e-6;
+                const candidates = Array.from(wraps).map(w => {
+                  const meta = parseOU(w);
+                  const isLocked = w.querySelector('.event-selection_locked, .event-odds_locked');
+                  const oddTxt = (w.querySelector('.event-odds span')?.textContent || '').trim();
+                  const oddNum = parseFloat(oddTxt.replace(',', '.'));
+                  return { w, side: meta.side, line: meta.line, isLocked: !!isLocked, oddTxt, oddNum };
+                }).filter(c => c.side && !isNaN(c.line) && Math.abs(c.line - (ouLine || 2.5)) < eps && !c.isLocked && !isNaN(c.oddNum) && (!isFinite(maxOdd) || c.oddNum <= maxOdd));
+                if (candidates.length) {
+                  // OU: ignorer selectionMode, utiliser uniquement la priorité over/under, fallback min
+                  const first = ouSidePriority === 'under' ? 'under' : 'over';
+                  const second = first === 'over' ? 'under' : 'over';
+                  const cand1 = candidates.find(c => c.side === first);
+                  const cand2 = candidates.find(c => c.side === second);
+                  chosenWrap = (cand1 || cand2)?.w || null;
+                  if (!chosenWrap) { candidates.sort((a,b) => a.oddNum - b.oddNum); chosenWrap = candidates[0]?.w || null; }
+                }
+              } else {
+                // DC: logique existante (1X/X2/12)
+                // Construire la liste des candidats admissibles (non lock et <= maxOdd)
+                const candidates = Array.from(wraps).map(w => {
                   const label = norm(w.querySelector('.event-selection')?.textContent);
                   const isLocked = w.querySelector('.event-selection_locked, .event-odds_locked');
-                  return label === code && !isLocked;
-                });
-                if (chosen) break;
-              }
-              if (!chosen) continue;
+                  const oddTxt = (w.querySelector('.event-odds span')?.textContent || '').trim();
+                  const oddNum = parseFloat(oddTxt.replace(',', '.'));
+                  return { w, label, isLocked: !!isLocked, oddTxt, oddNum };
+                }).filter(c => !c.isLocked && !isNaN(c.oddNum) && (!isFinite(maxOdd) || c.oddNum <= maxOdd));
+                if (!candidates.length) continue;
 
-              const priceId = chosen.id || '';
-              const label = (chosen.querySelector('.event-selection')?.textContent || '').trim();
-              const odd = (chosen.querySelector('.event-odds span')?.textContent || '').trim();
+                if (mode === 'min') {
+                  // plus petite cote admissible, tie-break sur l'ordre pickOrder
+                  candidates.sort((a,b) => {
+                    if (a.oddNum !== b.oddNum) return a.oddNum - b.oddNum;
+                    return pickOrder.indexOf(a.label) - pickOrder.indexOf(b.label);
+                  });
+                  chosenWrap = candidates[0]?.w || null;
+                } else if (mode === 'round') {
+                  // rotation: on essaie à partir de rrIndexLocal
+                  for (let k = 0; k < pickOrder.length && !chosenWrap; k++) {
+                    const lbl = pickOrder[(rrIndexLocal + k) % pickOrder.length];
+                    const cand = candidates.find(c => c.label === lbl);
+                    if (cand) { chosenWrap = cand.w; rrIndexLocal = (rrIndexLocal + 1) % pickOrder.length; }
+                  }
+                  if (!chosenWrap) {
+                    // fallback: plus petite cote
+                    candidates.sort((a,b) => a.oddNum - b.oddNum);
+                    chosenWrap = candidates[0]?.w || null;
+                  }
+                } else {
+                  // 'priority' par défaut: 1x > x2 > 12
+                  for (const code of pickOrder) {
+                    const cand = candidates.find(c => c.label === code);
+                    if (cand) { chosenWrap = cand.w; break; }
+                  }
+                  if (!chosenWrap) {
+                    // fallback: plus petite cote
+                    candidates.sort((a,b) => a.oddNum - b.oddNum);
+                    chosenWrap = candidates[0]?.w || null;
+                  }
+                }
+              }
+
+              if (!chosenWrap) continue;
+              const priceId = chosenWrap.id || '';
+              const label = (chosenWrap.querySelector('.event-selection')?.textContent || '').trim();
+              const odd = (chosenWrap.querySelector('.event-odds span')?.textContent || '').trim();
               if (priceId) newTargets.push({ priceId, label, odd, eventId });
 
               if (newTargets.length >= 5) break; // batch limité par itération
             }
-            return newTargets;
-          }, Array.from(processedEventIds), startIndex, endIndex);
+            return { newTargets, rrIndex: rrIndexLocal };
+          }, Array.from(processedEventIds), startIndex, endIndex, maxOddPerSelection, selectionMode, pickOrder, rrIndex, randomMode, randomSkipRate, MARKET_ID, ouTargetLine, ouPriority);
+
+          const targets = (targetsPayload && (targetsPayload.newTargets || targetsPayload.targets)) || [];
+          if (typeof targetsPayload?.rrIndex === 'number') rrIndex = targetsPayload.rrIndex;
 
           if (targets && targets.length > 0) {
             console.log(`   🎯 Sélection en cours (batch ${targets.length})...`);
@@ -277,6 +665,8 @@ async function run() {
                 }, t.priceId);
                 processedEventIds.add(t.eventId);
                 totalSelected++;
+                // Mémoriser le dernier évènement sélectionné pour recentrage ultérieur
+                lastSelectedEventId = t.eventId;
                 // Lire la cote totale affichée par le site (source de vérité) à CHAQUE tentative de sélection
                 try {
                   await page.waitForFunction((prev) => {
@@ -306,12 +696,10 @@ async function run() {
                 console.log(`   ⚠️ Échec clic (${t.eventId}): ${e.message}`);
               }
             }
-            // Après traitement, avancer la fenêtre
-            lastProcessedCount = Math.max(lastProcessedCount, count);
+            // Plus d'avancement de fenêtre: on s'appuie sur processedEventIds pour ne rien rater
           }
           else {
-            // Rien de sélectionnable dans cette fenêtre, avancer tout de même la fenêtre pour éviter de rebalayer
-            lastProcessedCount = Math.max(lastProcessedCount, count);
+            // Rien de sélectionnable, on garde le balayage complet à l'itération suivante
           }
         }
       }
@@ -322,6 +710,16 @@ async function run() {
     console.log(`📈 Total d'évènements chargés: ${totalChunks}`);
     if (reachedTarget) {
       console.log(`✅ Objectif atteint: cote cumulée ${currentTotal.toFixed(2)} ≥ ${targetCote}`);
+      // Placement automatique éventuel
+      if (placementAuto && stakeAmount > 0) {
+        console.log('💰 Placement automatique activé.');
+        const placed = await placeBet(page, stakeAmount);
+        console.log(placed ? '🎉 Pari placé avec succès.' : '❌ Échec du placement du pari.');
+        const newBalance = await getBalance(page);
+        if (newBalance != null) console.log(`💰 Nouveau solde: ${newBalance}`);
+      } else if (placementAuto) {
+        console.log('ℹ️ Montant de mise invalide ou nul — placement annulé.');
+      }
     } else {
       console.log(`ℹ️ Objectif non atteint: cote cumulée ${currentTotal.toFixed(2)} < ${targetCote}`);
     }

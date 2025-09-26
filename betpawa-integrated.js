@@ -1,18 +1,4 @@
 require("dotenv").config();
-const puppeteer = require("puppeteer");
-const fs = require("fs");
-const path = require("path");
-const readline = require("readline");
-
-/**
- * Script intégré pour Betpawa:
- * - Connexion automatique ou manuelle
- * - Scraping de la liste des matchs
- * - Sélection des paris (double chance ou victoire simple)
- * - Mode de sélection continu ou aléatoire
- * - Placement des paris
- */
-
 // Fonction pour vérifier si un match est dans le coupon de paris
 async function checkMatchInBetslip(page, eventId) {
   console.log(`🔍 Vérification si le match ${eventId} est dans le coupon...`);
