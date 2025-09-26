@@ -51,6 +51,22 @@ async function run() {
     console.log('➡️  Navigation vers:', TEST_URL);
     await page.goto(TEST_URL, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
+    // Helper pour lire la cote totale depuis le betslip (source de vérité UI)
+    async function readTotalOdds() {
+      try {
+        const val = await page.evaluate(() => {
+          const el = document.querySelector('.bet-details .bet-details-total-odds .current-value[data-test-id="totalOdds"]');
+          if (!el) return null;
+          const t = (el.textContent || '').trim().replace(',', '.');
+          const n = parseFloat(t);
+          return isNaN(n) ? null : n;
+        });
+        return val;
+      } catch (_) {
+        return null;
+      }
+    }
+
     // Empêcher toute navigation vers les pages /event/<id> pendant le test
     async function disableEventLinks() {
       await page.evaluate(() => {
@@ -234,6 +250,9 @@ async function run() {
                 const exists = await page.evaluate((sid) => !!document.querySelector(`#${sid}`), t.priceId);
                 if (!exists) { continue; }
                 await disableEventLinks();
+                // Lire la cote totale actuelle avant clic (pour détecter un changement)
+                const beforeUiTotal = (await readTotalOdds()) ?? currentTotal;
+
                 // tentative de clic + léger retry
                 let clicked = false;
                 for (let r = 0; r < 2 && !clicked; r++) {
@@ -258,10 +277,20 @@ async function run() {
                 }, t.priceId);
                 processedEventIds.add(t.eventId);
                 totalSelected++;
-                // Mettre à jour la cote cumulée si on a la cote
-                let oddNum = parseFloat(String(t.odd || '').replace(',', '.'));
-                if (!isNaN(oddNum) && oddNum > 1.0 && selectedOk) {
-                  currentTotal *= oddNum;
+                // Lire la cote totale affichée par le site (source de vérité) à CHAQUE tentative de sélection
+                try {
+                  await page.waitForFunction((prev) => {
+                    const el = document.querySelector('.bet-details .bet-details-total-odds .current-value[data-test-id="totalOdds"]');
+                    if (!el) return false;
+                    const n = parseFloat((el.textContent || '').trim().replace(',', '.'));
+                    if (isNaN(n)) return false;
+                    // soit la cote est > 1.0 (au moins 1 pari), soit elle a changé par rapport à avant
+                    return n > 1.0 && Math.abs(n - prev) > 1e-6;
+                  }, { timeout: 1500 }, beforeUiTotal);
+                } catch (_) { /* ignore timeout */ }
+                const uiTotal = await readTotalOdds();
+                if (uiTotal && !isNaN(uiTotal)) {
+                  currentTotal = uiTotal;
                 }
                 console.log(selectedOk
                   ? `   ✅ Sélection confirmée: ${t.label} @ ${t.odd} (eventId=${t.eventId})`
@@ -295,6 +324,17 @@ async function run() {
       console.log(`✅ Objectif atteint: cote cumulée ${currentTotal.toFixed(2)} ≥ ${targetCote}`);
     } else {
       console.log(`ℹ️ Objectif non atteint: cote cumulée ${currentTotal.toFixed(2)} < ${targetCote}`);
+    }
+    // Affichage du totalOdds final
+    try {
+      const finalUiTotal = await readTotalOdds();
+      if (finalUiTotal && !isNaN(finalUiTotal)) {
+        console.log(`🏁 TotalOdds final (UI): ${finalUiTotal.toFixed(2)}`);
+      } else {
+        console.log(`🏁 TotalOdds final (calculé): ${currentTotal.toFixed(2)}`);
+      }
+    } catch (_) {
+      console.log(`🏁 TotalOdds final (calculé): ${currentTotal.toFixed(2)}`);
     }
 
     // Extraction des sélections DC (1X, 12, X2)
@@ -393,14 +433,14 @@ async function run() {
     if (!results || results.length === 0) {
       console.log('Aucun évènement ou sélection DC détecté (les sélecteurs peuvent nécessiter un ajustement).');
     } else {
-      for (const ev of results) {
-        console.log('—'.repeat(60));
-        console.log('Match/Event ID:', ev.eventId);
-        console.log('Teams/Titre   :', ev.teams);
-        console.log('Sélections    :', ev.selections);
-      }
-      console.log('—'.repeat(60));
-      console.log(`✅ Total évènements détectés: ${results.length}`);
+      // for (const ev of results) {
+      //   console.log('—'.repeat(60));
+      //   console.log('Match/Event ID:', ev.eventId);
+      //   console.log('Teams/Titre   :', ev.teams);
+      //   console.log('Sélections    :', ev.selections);
+      // }
+      // console.log('—'.repeat(60));
+      // console.log(`✅ Total évènements détectés: ${results.length}`);
     }
 
     // Screenshot désactivé
@@ -416,8 +456,21 @@ async function run() {
   } catch (err) {
     console.error('❌ Erreur pendant le test DC:', err.message);
   } finally {
+    // Afficher une dernière fois le TotalOdds juste avant fermeture, pour qu'il soit en bas du log
+    try {
+      const finalUiTotal = await (typeof readTotalOdds === 'function' ? readTotalOdds() : null);
+      if (finalUiTotal && !isNaN(finalUiTotal)) {
+        console.log(`\n🏁 Récap final — TotalOdds: ${finalUiTotal.toFixed(2)} (UI)`);
+      } else {
+        console.log(`\n🏁 Récap final — TotalOdds: ${typeof currentTotal === 'number' ? currentTotal.toFixed(2) : 'N/A'} (calculé)`);
+      }
+    } catch (_) {
+      console.log(`\n🏁 Récap final — TotalOdds: ${typeof currentTotal === 'number' ? currentTotal.toFixed(2) : 'N/A'} (calculé)`);
+    }
+    console.log('—'.repeat(80));
+
     // Laisser quelques secondes pour inspection avant fermeture
-    await delay(5000);
+    await delay(3000);
     await browser.close();
   }
 }
