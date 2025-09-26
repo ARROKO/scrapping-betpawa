@@ -79,9 +79,12 @@ async function run() {
       stakeAmount = !isNaN(parsedStake) && parsedStake > 0 ? parsedStake : 0;
     }
   } else {
-    const v = (process.env.PLACEMENT_AUTO || '0').toLowerCase();
-    placementAuto = v === '1' || v === 'true' || v === 'yes' || v === 'o';
-    stakeAmount = parseFloat(((process.env.STAKE_AMOUNT || '') + '').replace(',', '.')) || 0;
+    // API mode: always place bet automatically at the end
+    placementAuto = true;
+    stakeAmount = parseFloat(((process.env.STAKE_AMOUNT || '') + '').replace(',', '.'));
+    if (!stakeAmount || isNaN(stakeAmount) || stakeAmount <= 0) {
+      stakeAmount = 1; // sensible default
+    }
   }
 
   // Déterminer l’URL en fonction du marché
@@ -179,6 +182,8 @@ async function run() {
     defaultViewport: { width: 1366, height: 820 },
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--start-maximized'],
     slowMo: 50,
+    // Persist session to avoid frequent logins / cooldowns
+    userDataDir: process.env.PAWA_PROFILE_DIR || './.pawa-profile',
   });
 
   const page = await browser.newPage();
@@ -320,10 +325,14 @@ async function run() {
       }
     }
 
-    // 1) Aller à l'accueil et se connecter selon choix
+    // 1) Aller à l'accueil et se connecter selon choix (avec session persistée)
     console.log('➡️  Navigation vers: https://www.betpawa.cm');
     await page.goto('https://www.betpawa.cm', { waitUntil: 'domcontentloaded', timeout: 120000 });
-    if (useAutoLogin) {
+    // Essayer de réutiliser la session existante (cookies/localStorage via userDataDir)
+    let alreadyLogged = await waitForBalance(page, 5000);
+    if (alreadyLogged) {
+      console.log('🔓 Session existante détectée — connexion sautée.');
+    } else if (useAutoLogin) {
       const ok = await loginAuto(page);
       if (!ok) console.log('ℹ️ Vous pouvez vous connecter manuellement si besoin.');
     } else {

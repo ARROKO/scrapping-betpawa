@@ -1,0 +1,5 @@
+2025/09/26-14:08:52.658 330c Creating DB C:\Users\Joseph\Documents\GitHub\scrapping-betpawa\.pawa-profile\Default\Local Storage\leveldb since it was missing.
+2025/09/26-14:08:52.794 330c Reusing MANIFEST C:\Users\Joseph\Documents\GitHub\scrapping-betpawa\.pawa-profile\Default\Local Storage\leveldb/MANIFEST-000001
+2025/09/26-14:09:52.877 330c Level-0 table #5: started
+2025/09/26-14:09:52.897 330c Level-0 table #5: 186260 bytes OK
+2025/09/26-14:09:52.901 330c Delete type=0 #3

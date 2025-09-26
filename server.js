@@ -103,8 +103,9 @@ const server = http.createServer(async (req, res) => {
       TARGET_COTE: cfg.targetCote ?? cfg.target_cote ?? cfg.target ?? '',
       MARKET_ID: cfg.marketId ?? cfg.market ?? 'DC',
       AUTO_LOGIN: cfg.autoLogin ?? '1',
-      PLACEMENT_AUTO: cfg.placementAuto ?? cfg.autoPlace ?? '0',
-      STAKE_AMOUNT: cfg.stakeAmount ?? cfg.stake ?? '',
+      // Always place automatically at the end in API mode
+      PLACEMENT_AUTO: '1',
+      STAKE_AMOUNT: cfg.stakeAmount ?? cfg.stake ?? '1',
       RANDOM_MODE: cfg.randomMode ?? '0',
       RANDOM_SKIP_RATE: cfg.randomSkipRate ?? '',
       MAX_ODD_PER_SELECTION: cfg.maxOddPerSelection ?? '',
