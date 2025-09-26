@@ -1,4 +1,5 @@
 const puppeteer = require('puppeteer');
+const readline = require('readline');
 
 // Config test
 const DO_SCREENSHOT = false; // stop screenshots per user request
@@ -12,6 +13,31 @@ async function delay(ms) {
 }
 
 async function run() {
+  // Interaction utilisateur: cible de cote totale et limite par sélection
+  const ask = (q) => new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(q, (ans) => { rl.close(); resolve(ans.trim()); });
+  });
+
+  let targetCote = 0;
+  while (!targetCote || isNaN(targetCote) || targetCote < 2) {
+    const input = await ask('🎯 Cote totale à atteindre (ex: 10) : ');
+    targetCote = parseFloat((input || '').replace(',', '.'));
+    if (!targetCote || isNaN(targetCote) || targetCote < 2) {
+      console.log("❌ Entrez un nombre valide ≥ 2");
+    }
+  }
+
+  let maxOddPerSelection = Infinity;
+  const maxInput = await ask('⚖️ Limite de cote par sélection (ex: 2.0) ou ENTER pour aucune limite : ');
+  if (maxInput) {
+    const parsed = parseFloat(maxInput.replace(',', '.'));
+    if (!isNaN(parsed) && parsed >= 1.01) maxOddPerSelection = parsed;
+  }
+
+  let currentTotal = 1.0;
+  let reachedTarget = false;
+
   const browser = await puppeteer.launch({
     headless: false,
     defaultViewport: { width: 1366, height: 820 },
@@ -24,6 +50,34 @@ async function run() {
   try {
     console.log('➡️  Navigation vers:', TEST_URL);
     await page.goto(TEST_URL, { waitUntil: 'domcontentloaded', timeout: 120000 });
+
+    // Empêcher toute navigation vers les pages /event/<id> pendant le test
+    async function disableEventLinks() {
+      await page.evaluate(() => {
+        const scope = document.querySelector('.section-middle .scrollable-content') || document.body;
+        if (!scope) return;
+        const anchors = scope.querySelectorAll('a[href^="/event/"]');
+        anchors.forEach(a => { a.style.pointerEvents = 'none'; });
+        // Bloquer au niveau document (capture) par sécurité
+        const blocker = (e) => {
+          const a = e.target.closest && e.target.closest('a[href^="/event/"]');
+          if (a) { e.preventDefault(); e.stopPropagation(); }
+        };
+        document.removeEventListener('click', blocker, true);
+        document.addEventListener('click', blocker, true);
+      });
+    }
+
+    async function ensureOnListing() {
+      const onListing = await page.evaluate(() => location.pathname.startsWith('/events'));
+      if (!onListing) {
+        await page.goto(TEST_URL, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await delay(1000);
+        await disableEventLinks();
+      }
+    }
+
+    await disableEventLinks();
 
     // Essayer de fermer une éventuelle bannière cookies
     try {
@@ -56,11 +110,13 @@ async function run() {
 
       let prevCount = 0;
       let idle = 0;
+      let lastProcessedCount = 0; // nombre d'évènements déjà considérés dans les boucles précédentes
       const processedEventIds = new Set();
       const MAX_SELECT = MAX_INTERLEAVED_SELECT; // sélection maximum pendant le scroll
       let totalSelected = 0;
 
-      for (let i = 0; i < MAX_LOOPS && idle < IDLE_THRESHOLD; i++) {
+      for (let i = 0; i < MAX_LOOPS && idle < IDLE_THRESHOLD && !reachedTarget; i++) {
+        await ensureOnListing();
         // Détection du bon conteneur scrollable (réel): .section-middle .scrollable-content
         const stats = await page.evaluate(() => {
           function isScrollable(el) {
@@ -70,18 +126,15 @@ async function run() {
             return canScroll && el.scrollHeight > el.clientHeight;
           }
           const container = document.querySelector('.section-middle .scrollable-content');
-          // Faire défiler le dernier évènement dans le viewport
+          // Faire défiler vers le bas uniquement (éviter de remonter)
           const events = Array.from(document.querySelectorAll('.game-events-container.prematch'));
           const lastEvent = events[events.length - 1];
           if (lastEvent) lastEvent.scrollIntoView({ behavior: 'smooth', block: 'end' });
-
-          // Petit scroll du conteneur principal
           if (container && typeof container.scrollTo === 'function') {
-            container.scrollTo({ top: container.scrollTop + 800, behavior: 'smooth' });
+            container.scrollTo({ top: container.scrollTop + 1000, behavior: 'smooth' });
           } else {
             window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
           }
-
           const count = events.length;
           return { hasContainer: !!container, count };
         });
@@ -92,12 +145,8 @@ async function run() {
           const to = container.scrollHeight || document.body.scrollHeight;
           if (typeof container.scrollTo === 'function') {
             container.scrollTo({ top: to, behavior: 'smooth' });
-            setTimeout(() => container.scrollTo({ top: to * 0.9, behavior: 'smooth' }), 150);
-            setTimeout(() => container.scrollTo({ top: to, behavior: 'smooth' }), 300);
           } else {
             window.scrollTo({ top: to, behavior: 'smooth' });
-            setTimeout(() => window.scrollTo({ top: to * 0.9, behavior: 'smooth' }), 150);
-            setTimeout(() => window.scrollTo({ top: to, behavior: 'smooth' }), 300);
           }
           container.dispatchEvent(new Event('scroll', { bubbles: true }));
           window.dispatchEvent(new Event('scroll'));
@@ -111,19 +160,27 @@ async function run() {
         await delay(300);
 
         // Nouvelle mesure
+        await ensureOnListing();
         const count = await page.evaluate(() => document.querySelectorAll('.game-events-container.prematch').length);
         console.log(`   ➕ Chunks: ${count} (loop ${i + 1})`);
         if (count <= prevCount) idle++; else idle = 0;
         prevCount = count;
 
         // Intercaler la sélection pendant le scroll pour les nouveaux évènements
-        if (totalSelected < MAX_SELECT) {
-          const targets = await page.evaluate((processedList) => {
+        if (totalSelected < MAX_SELECT && !reachedTarget) {
+          await disableEventLinks();
+          // Déterminer la fenêtre de nouveaux évènements à traiter (entre lastProcessedCount et count)
+          let startIndex = lastProcessedCount;
+          if (startIndex < 0) startIndex = 0;
+          if (startIndex > count) startIndex = Math.max(0, count - 1);
+          const endIndex = count;
+          const targets = await page.evaluate((processedList, startIdx, endIdx) => {
             function norm(s) { return (s || '').trim().toLowerCase(); }
             const pickOrder = ['1x', 'x2', '12'];
             const newTargets = [];
             const events = Array.from(document.querySelectorAll('.game-events-container.prematch'));
-            for (const ev of events) {
+            const slice = events.slice(Math.min(startIdx, events.length), Math.min(endIdx, events.length));
+            for (const ev of slice) {
               const link = ev.querySelector('a[href^="/event/"]');
               let eventId = null;
               if (link) {
@@ -154,7 +211,7 @@ async function run() {
               if (newTargets.length >= 5) break; // batch limité par itération
             }
             return newTargets;
-          }, Array.from(processedEventIds));
+          }, Array.from(processedEventIds), startIndex, endIndex);
 
           if (targets && targets.length > 0) {
             console.log(`   🎯 Sélection en cours (batch ${targets.length})...`);
@@ -166,7 +223,29 @@ async function run() {
                   el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }, t.priceId);
                 await delay(120);
-                await page.click(`#${t.priceId}`);
+                // Filtrer par limite de cote
+                const oddNumPre = parseFloat(String(t.odd || '').replace(',', '.'));
+                if (isFinite(maxOddPerSelection) && (!oddNumPre || isNaN(oddNumPre) || oddNumPre > maxOddPerSelection)) {
+                  console.log(`   ⏭️ Ignoré (limite): ${t.label} @ ${t.odd} > ${maxOddPerSelection} (eventId=${t.eventId})`);
+                  processedEventIds.add(t.eventId); // marquer comme traité pour avancer la fenêtre
+                  continue;
+                }
+                // Revalider la présence de l'élément juste avant le clic
+                const exists = await page.evaluate((sid) => !!document.querySelector(`#${sid}`), t.priceId);
+                if (!exists) { continue; }
+                await disableEventLinks();
+                // tentative de clic + léger retry
+                let clicked = false;
+                for (let r = 0; r < 2 && !clicked; r++) {
+                  try {
+                    await page.click(`#${t.priceId}`);
+                    clicked = true;
+                  } catch (_) {
+                    await delay(120);
+                    await page.evaluate((sid) => document.querySelector(`#${sid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), t.priceId);
+                    await delay(120);
+                  }
+                }
                 await delay(250);
                 // verify selection state
                 const selectedOk = await page.evaluate((sid) => {
@@ -179,14 +258,31 @@ async function run() {
                 }, t.priceId);
                 processedEventIds.add(t.eventId);
                 totalSelected++;
+                // Mettre à jour la cote cumulée si on a la cote
+                let oddNum = parseFloat(String(t.odd || '').replace(',', '.'));
+                if (!isNaN(oddNum) && oddNum > 1.0 && selectedOk) {
+                  currentTotal *= oddNum;
+                }
                 console.log(selectedOk
                   ? `   ✅ Sélection confirmée: ${t.label} @ ${t.odd} (eventId=${t.eventId})`
                   : `   ⚠️ Sélection non confirmée (peut varier selon l'état du site): ${t.label} (eventId=${t.eventId})`);
+                console.log(`   📈 Cote totale cumulée: ${currentTotal.toFixed(2)} / cible ${targetCote}`);
+                if (currentTotal >= targetCote) {
+                  console.log('   🛑 Cible atteinte, arrêt de la sélection.');
+                  reachedTarget = true;
+                  break;
+                }
                 if (totalSelected >= MAX_SELECT) break;
               } catch (e) {
                 console.log(`   ⚠️ Échec clic (${t.eventId}): ${e.message}`);
               }
             }
+            // Après traitement, avancer la fenêtre
+            lastProcessedCount = Math.max(lastProcessedCount, count);
+          }
+          else {
+            // Rien de sélectionnable dans cette fenêtre, avancer tout de même la fenêtre pour éviter de rebalayer
+            lastProcessedCount = Math.max(lastProcessedCount, count);
           }
         }
       }
@@ -195,6 +291,11 @@ async function run() {
 
     const totalChunks = await loadAllEvents();
     console.log(`📈 Total d'évènements chargés: ${totalChunks}`);
+    if (reachedTarget) {
+      console.log(`✅ Objectif atteint: cote cumulée ${currentTotal.toFixed(2)} ≥ ${targetCote}`);
+    } else {
+      console.log(`ℹ️ Objectif non atteint: cote cumulée ${currentTotal.toFixed(2)} < ${targetCote}`);
+    }
 
     // Extraction des sélections DC (1X, 12, X2)
     const results = await page.evaluate(() => {
