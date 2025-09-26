@@ -180,13 +180,23 @@ async function run() {
   const browser = await puppeteer.launch({
     headless: false,
     defaultViewport: { width: 1366, height: 820 },
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--start-maximized'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--start-maximized',
+      // reduce background throttling when window not focused/occluded
+      '--disable-background-timer-throttling',
+      '--disable-renderer-backgrounding',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-features=CalculateNativeWinOcclusion'
+    ],
     slowMo: 50,
     // Persist session to avoid frequent logins / cooldowns
     userDataDir: process.env.PAWA_PROFILE_DIR || './.pawa-profile',
   });
 
   const page = await browser.newPage();
+  try { await page.bringToFront(); } catch (_) {}
 
   try {
     // Helpers login & solde & placement
@@ -447,14 +457,13 @@ async function run() {
             return canScroll && el.scrollHeight > el.clientHeight;
           }
           const container = document.querySelector('.section-middle .scrollable-content');
-          // Faire défiler vers le bas uniquement (éviter de remonter)
+          // Faire défiler vers le bas uniquement (éviter de remonter) — sans animation pour éviter le throttling
           const events = Array.from(document.querySelectorAll('.game-events-container.prematch'));
-          const lastEvent = events[events.length - 1];
-          if (lastEvent) lastEvent.scrollIntoView({ behavior: 'smooth', block: 'end' });
-          if (container && typeof container.scrollTo === 'function') {
-            container.scrollTo({ top: container.scrollTop + 1000, behavior: 'smooth' });
+          if (container) {
+            container.scrollTop = Math.min(container.scrollTop + 1200, container.scrollHeight);
           } else {
-            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            const doc = document.scrollingElement || document.documentElement || document.body;
+            doc.scrollTop = Math.min((doc.scrollTop || 0) + 1200, (doc.scrollHeight || document.body.scrollHeight));
           }
           const count = events.length;
           return { hasContainer: !!container, count };
@@ -462,12 +471,12 @@ async function run() {
 
         // Scroll avec rebond
         await page.evaluate(() => {
-          const container = document.querySelector('.section-middle .scrollable-content') || document.body;
-          const to = container.scrollHeight || document.body.scrollHeight;
-          if (typeof container.scrollTo === 'function') {
-            container.scrollTo({ top: to, behavior: 'smooth' });
+          const container = document.querySelector('.section-middle .scrollable-content') || document.scrollingElement || document.documentElement || document.body;
+          const to = container.scrollHeight || document.body.scrollHeight || document.documentElement.scrollHeight;
+          if (container === (document.scrollingElement || document.documentElement || document.body)) {
+            container.scrollTop = to;
           } else {
-            window.scrollTo({ top: to, behavior: 'smooth' });
+            container.scrollTop = to;
           }
           container.dispatchEvent(new Event('scroll', { bubbles: true }));
           window.dispatchEvent(new Event('scroll'));

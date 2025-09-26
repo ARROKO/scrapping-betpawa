@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Betpawa Runner API – Documentation</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #0f172a;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #22d3ee;
+      --accent-2: #60a5fa;
+      --border: #1f2a44;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --code-bg: #0a0f1a;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--text);
+      background: radial-gradient(1000px 600px at 0% 0%, rgba(96,165,250,0.08), transparent 40%),
+                  radial-gradient(1000px 600px at 100% 0%, rgba(34,211,238,0.08), transparent 40%),
+                  var(--bg);
+    }
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 20px 24px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(15,23,42,0.9), rgba(15,23,42,0.75));
+      box-shadow: 0 10px 30px rgba(2,6,23,0.5), inset 0 1px 0 rgba(255,255,255,0.03);
+      position: sticky;
+      top: 16px;
+      backdrop-filter: blur(8px);
+      z-index: 10;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 10px 20px rgba(34,211,238,0.25);
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0.3px;
+    }
+    .links a {
+      color: var(--text);
+      text-decoration: none;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(15,23,42,0.5);
+      transition: all .2s ease;
+      margin-left: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .links a:hover { border-color: var(--accent); color: #e6faff; box-shadow: 0 6px 18px rgba(34,211,238,0.15); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+      margin-top: 18px;
+    }
+    @media (min-width: 900px) {
+      .grid { grid-template-columns: 1.2fr 1fr; }
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(15,23,42,0.8), rgba(15,23,42,0.6));
+      border-radius: 14px;
+      padding: 18px 18px 8px;
+      box-shadow: 0 10px 30px rgba(2,6,23,0.5), inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+    .card h2 {
+      margin: 4px 0 8px;
+      font-size: 18px;
+    }
+    .muted { color: var(--muted); }
+
+    .endpoint {
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin: 12px 0;
+      background: rgba(10,15,26,0.6);
+    }
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      letter-spacing: .4px;
+      border: 1px solid var(--border);
+      background: rgba(2,6,23,0.6);
+      margin-right: 8px;
+    }
+    .GET { color: #22d3ee; border-color: rgba(34,211,238,0.5); }
+    .POST { color: #22c55e; border-color: rgba(34,197,94,0.5); }
+    .SSE { color: #f59e0b; border-color: rgba(245,158,11,0.5); }
+
+    pre { margin: 8px 0 0; }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      background: var(--code-bg);
+      color: #d6e9ff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      display: block;
+      overflow: auto;
+      line-height: 1.5;
+    }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .pill { padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); }
+    .ok { color: var(--success); }
+    .warn { color: var(--warning); }
+    .danger { color: var(--danger); }
+
+    footer { text-align: center; color: var(--muted); margin: 24px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <div>
+          <h1>Betpawa Runner API</h1>
+          <div class="muted">Documentation des endpoints (locale)</div>
+        </div>
+      </div>
+      <div class="links">
+        <a href="/swagger" target="_blank">Swagger UI ↗</a>
+        <a href="/openapi.json" target="_blank">OpenAPI JSON ↗</a>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Démarrage rapide</h2>
+        <div class="muted">Le serveur écoute par défaut sur <strong>http://127.0.0.1:3000</strong>.</div>
+        <div class="endpoint">
+          <div class="row"><span class="badge POST">POST</span><strong>/start</strong></div>
+          <div class="muted">Démarre le bot avec les paramètres fournis. Réponse 202 si accepté.</div>
+          <pre><code class="language-json">{
+  "targetCote": 50,
+  "marketId": "DC",
+  "autoLogin": "1",
+  "stakeAmount": 2,
+  "randomMode": "0",
+  "maxOddPerSelection": 2.5,
+  "selectionMode": "priority",
+  "ouLine": 2.5,
+  "ouPriority": "over",
+  "countryCode": "+237",
+  "phoneNumber": "699000000",
+  "password": "secret"
+}</code></pre>
+          <pre><code class="language-bash">curl -X POST http://127.0.0.1:3000/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "targetCote": 50,
+    "marketId": "DC",
+    "autoLogin": "1",
+    "stakeAmount": 2
+  }'</code></pre>
+        </div>
+
+        <div class="endpoint">
+          <div class="row"><span class="badge GET">GET</span><strong>/status</strong></div>
+          <div class="muted">Retourne l'état courant, dates de début/fin, code de sortie et un extrait d'env.</div>
+          <pre><code class="language-bash">curl http://127.0.0.1:3000/status</code></pre>
+        </div>
+
+        <div class="endpoint">
+          <div class="row"><span class="badge GET">GET</span><strong>/logs</strong><span class="pill SSE">SSE</span></div>
+          <div class="muted">Flux en temps réel des logs via Server-Sent Events.</div>
+          <pre><code class="language-js">const es = new EventSource('http://127.0.0.1:3000/logs');
+es.onmessage = (e) => {
+  const msg = JSON.parse(e.data); // { type: 'log', line: '...' }
+  console.log(msg.line);
+};</code></pre>
+        </div>
+      </section>
+
+      <aside class="card">
+        <h2>Gestion de session</h2>
+        <div class="endpoint">
+          <div class="row"><span class="badge GET">GET</span><strong>/session</strong></div>
+          <div class="muted">Vérifie la présence d'un profil local et retourne le contenu de <code>.pawa-profile/session.json</code> s'il existe.</div>
+          <pre><code class="language-bash">curl http://127.0.0.1:3000/session</code></pre>
+        </div>
+        <div class="endpoint">
+          <div class="row"><span class="badge POST">POST</span><strong>/logout</strong></div>
+          <div class="muted">Supprime la session locale et stoppe le run si actif.</div>
+          <pre><code class="language-bash">curl -X POST http://127.0.0.1:3000/logout</code></pre>
+        </div>
+        <div class="endpoint">
+          <div class="row"><span class="badge POST">POST</span><strong>/stop</strong></div>
+          <div class="muted">Demande l'arrêt du processus en cours. 202 si accepté, 409 si aucun run.</div>
+          <pre><code class="language-bash">curl -X POST http://127.0.0.1:3000/stop</code></pre>
+        </div>
+      </aside>
+    </div>
+
+    <section class="card">
+      <h2>Détails des paramètres <span class="muted">(/start)</span></h2>
+      <ul>
+        <li><strong>targetCote</strong> (number) – Cote totale cible. Alias acceptés: <code>target</code>, <code>target_cote</code>.</li>
+        <li><strong>marketId</strong> (string) – Marché: <code>DC</code> (double chance), <code>OU</code> (over/under), etc.</li>
+        <li><strong>autoLogin</strong> ("0" | "1") – Active la connexion automatique (.env ou valeurs fournies).</li>
+        <li><strong>stakeAmount</strong> (number) – Montant de la mise.</li>
+        <li><strong>randomMode</strong> ("0" | "1") – Sélection aléatoire intelligente.</li>
+        <li><strong>randomSkipRate</strong> (number) – Taux de saut aléatoire.</li>
+        <li><strong>maxOddPerSelection</strong> (number) – Cote maximale par sélection.</li>
+        <li><strong>selectionMode</strong> (string) – <code>priority</code> (défaut) ou autre stratégie.</li>
+        <li><strong>ouLine</strong> (number) – Ligne pour Over/Under (ex: 2.5).</li>
+        <li><strong>ouPriority</strong> (string) – <code>over</code> ou <code>under</code>.</li>
+        <li><strong>countryCode</strong>, <strong>phoneNumber</strong>, <strong>password</strong> – Infos de connexion (écrase .env si fournis).</li>
+      </ul>
+      <div class="muted">Note: le serveur met automatiquement <code>PLACEMENT_AUTO=1</code> et <code>NON_INTERACTIVE=1</code> en mode API.</div>
+    </section>
+
+    <section class="card">
+      <h2>Codes de réponse</h2>
+      <ul>
+        <li><strong class="ok">202 Accepté</strong> – Requête acceptée, traitement en cours.</li>
+        <li><strong class="ok">200 OK</strong> – Requête réussie.</li>
+        <li><strong class="warn">409 Conflit</strong> – État incompatible (ex: déjà en cours / pas de run).</li>
+        <li><strong class="danger">400 Requête invalide</strong> – Corps manquant ou mal formé.</li>
+        <li><strong class="danger">500 Erreur serveur</strong> – Erreur interne inattendue.</li>
+      </ul>
+    </section>
+
+    <footer>
+      Fichier statique généré – Voir aussi <a href="/swagger">Swagger UI</a> et <a href="/openapi.json">OpenAPI JSON</a>.
+    </footer>
+  </div>
+</body>
+</html>

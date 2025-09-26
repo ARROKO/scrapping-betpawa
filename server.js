@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const url = require('url');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const PORT = process.env.PORT || 3000;
 
@@ -93,6 +94,41 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  // Serve OpenAPI spec
+  if (parsed.pathname === '/openapi.json' && req.method === 'GET') {
+    try {
+      const specPath = path.join(process.cwd(), 'openapi.json');
+      if (!fs.existsSync(specPath)) {
+        json(res, 404, { error: 'OpenAPI spec not found. Ensure openapi.json exists at project root.' });
+        return;
+      }
+      const spec = fs.readFileSync(specPath);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(spec);
+    } catch (e) {
+      json(res, 500, { error: e.message });
+    }
+    return;
+  }
+
+  // Network info endpoint: expose local IPv4 addresses and base URLs
+  if (parsed.pathname === '/network' && req.method === 'GET') {
+    try {
+      const nets = os.networkInterfaces();
+      const ipv4 = [];
+      for (const name of Object.keys(nets)) {
+        for (const net of nets[name] || []) {
+          if (net.family === 'IPv4' && !net.internal) ipv4.push({ iface: name, address: net.address });
+        }
+      }
+      const bases = ipv4.map((n) => `http://${n.address}:${PORT}`);
+      json(res, 200, { ipv4, bases, recommended: bases[0] || null });
+    } catch (e) {
+      json(res, 500, { error: e.message });
+    }
     return;
   }
 
@@ -219,15 +255,112 @@ const server = http.createServer(async (req, res) => {
     req.on('close', () => sseClients.delete(res));
     return;
   }
+  // Serve OpenAPI spec
+  if (parsed.pathname === '/openapi.json' && req.method === 'GET') {
+    try {
+      const specPath = path.join(process.cwd(), 'openapi.json');
+      if (!fs.existsSync(specPath)) {
+        json(res, 404, { error: 'OpenAPI spec not found. Ensure openapi.json exists at project root.' });
+        return;
+      }
+      const spec = fs.readFileSync(specPath);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(spec);
+    } catch (e) {
+      json(res, 500, { error: e.message });
+    }
+    return;
+  }
+
+
+  // Serve static documentation page
+  if (parsed.pathname === '/docs' && req.method === 'GET') {
+    try {
+      const docPath = path.join(process.cwd(), 'docs.html');
+      if (!fs.existsSync(docPath)) {
+        json(res, 404, { error: 'docs.html not found at project root.' });
+        return;
+      }
+      const html = fs.readFileSync(docPath, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+    } catch (e) {
+      json(res, 500, { error: e.message });
+    }
+    return;
+  }
+
+  // Alias: serve the same page at /docs.html
+  if (parsed.pathname === '/docs.html' && req.method === 'GET') {
+    try {
+      const docPath = path.join(process.cwd(), 'docs.html');
+      if (!fs.existsSync(docPath)) {
+        json(res, 404, { error: 'docs.html not found at project root.' });
+        return;
+      }
+      const html = fs.readFileSync(docPath, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+    } catch (e) {
+      json(res, 500, { error: e.message });
+    }
+    return;
+  }
+
+  // Serve Swagger UI (moved to /swagger) pointing to /openapi.json
+  if (parsed.pathname === '/swagger' && req.method === 'GET') {
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Betpawa runner API Swagger</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
+  <style>body { margin: 0; } #swagger-ui { min-height: 100vh; }</style>
+  <script defer src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
+  <script defer src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      window.ui = SwaggerUIBundle({
+        url: '/openapi.json',
+        dom_id: '#swagger-ui',
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        layout: 'BaseLayout'
+      });
+    });
+  </script>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+  </body>
+</html>`;
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
 
   if (parsed.pathname === '/' && req.method === 'GET') {
-    json(res, 200, { message: 'Betpawa runner API', endpoints: ['/start', '/status', '/logs', '/stop'] });
+    json(res, 200, { message: 'Betpawa runner API', endpoints: ['/start', '/status', '/logs', '/stop', '/session', '/logout', '/openapi.json', '/docs', '/swagger', '/network'] , docs: '/docs' , swagger: '/swagger', network: '/network' });
     return;
   }
 
   notFound(res);
 });
 
-server.listen(PORT, () => {
-  console.log(`API server listening on http://127.0.0.1:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  const nets = os.networkInterfaces();
+  const ips = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) ips.push(net.address);
+    }
+  }
+  const local = `http://127.0.0.1:${PORT}`;
+  console.log(`API server listening on ${local}`);
+  if (ips.length) {
+    console.log('LAN addresses:');
+    for (const ip of ips) console.log(`  -> http://${ip}:${PORT}`);
+  } else {
+    console.log('No LAN IPv4 address detected.');
+  }
 });

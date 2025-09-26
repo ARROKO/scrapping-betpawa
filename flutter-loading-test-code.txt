@@ -1,0 +1,39 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+Stream<String> logsStream() async* {
+  final req = http.Request('GET', Uri.parse('http://127.0.0.1:3000/logs'));
+  final resp = await req.send();
+  // Le flux SSE est textuel; on lit au fil de l’eau.
+  await for (final chunk in resp.stream.transform(utf8.decoder)) {
+    // Le SSE sépare les messages par deux sauts de ligne
+    for (final part in chunk.split('\n\n')) {
+      if (part.startsWith('data: ')) {
+        final jsonStr = part.substring(6).trim();
+        final obj = json.decode(jsonStr);
+        final line = obj['line'] as String? ?? '';
+        yield line;
+      }
+    }
+  }
+}
+
+void observePlacement() async {
+  bool isPlacing = false;
+  await for (final line in logsStream()) {
+    if (line.contains('Placement automatique activé')) {
+      isPlacing = true;
+      // TODO: afficher spinner dans l’UI
+    }
+    if (line.contains('Pari placé avec succès')) {
+      isPlacing = false;
+      // TODO: cacher spinner + afficher succès
+    }
+    if (line.contains('Échec du placement') ||
+        line.contains('Erreur placement') ||
+        line.contains('Bouton \"Placer\" introuvable')) {
+      isPlacing = false;
+      // TODO: cacher spinner + afficher message d’erreur
+    }
+  }
+}

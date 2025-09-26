@@ -1,0 +1,236 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Betpawa Runner API",
+    "version": "1.0.0",
+    "description": "API pour contrôler l'exécution du bot Betpawa, consulter l'état, les journaux (SSE) et gérer la session."
+  },
+  "servers": [
+    { "url": "http://127.0.0.1:3000", "description": "Local" }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Informations de base",
+        "description": "Retourne un message de bienvenue et la liste des endpoints.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" },
+                    "endpoints": { "type": "array", "items": { "type": "string" } }
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "message": "Betpawa runner API",
+                      "endpoints": ["/start", "/status", "/logs", "/stop", "/session", "/logout", "/openapi.json", "/docs"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/start": {
+      "post": {
+        "summary": "Démarrer l'exécution",
+        "description": "Démarre le processus principal (app.js) avec des variables d'environnement dérivées du corps JSON.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/StartRequest" },
+              "examples": {
+                "minimal": {
+                  "value": { "targetCote": 50, "marketId": "DC" }
+                },
+                "complet": {
+                  "value": {
+                    "targetCote": 100,
+                    "marketId": "OU",
+                    "autoLogin": "1",
+                    "stakeAmount": 2,
+                    "randomMode": "0",
+                    "randomSkipRate": 0.1,
+                    "maxOddPerSelection": 2.5,
+                    "selectionMode": "priority",
+                    "ouLine": 2.5,
+                    "ouPriority": "over",
+                    "countryCode": "+237",
+                    "phoneNumber": "699000000",
+                    "password": "secret"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Démarrage accepté",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/StartResponse" },
+                "examples": { "default": { "value": { "message": "started", "pid": 12345 } } }
+              }
+            }
+          },
+          "409": { "description": "Un run est déjà en cours", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "400": { "description": "Requête invalide", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "summary": "Statut de l'exécution",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } }
+            }
+          }
+        }
+      }
+    },
+    "/session": {
+      "get": {
+        "summary": "Informations de session locale",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionResponse" } } }
+          },
+          "500": { "description": "Erreur serveur", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/logout": {
+      "post": {
+        "summary": "Supprimer la session locale et arrêter le run",
+        "responses": {
+          "200": { "description": "Session supprimée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BasicMessageResponse" }, "examples": { "default": { "value": { "message": "session cleared" } } } } } },
+          "500": { "description": "Erreur serveur", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/stop": {
+      "post": {
+        "summary": "Demander l'arrêt du run en cours",
+        "responses": {
+          "202": { "description": "Arrêt en cours", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StopResponse" } } } },
+          "409": { "description": "Aucun run en cours", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/logs": {
+      "get": {
+        "summary": "Flux de logs (SSE)",
+        "description": "Retourne un flux SSE de logs en temps réel. Consommer avec EventSource côté client.",
+        "responses": {
+          "200": {
+            "description": "text/event-stream SSE",
+            "content": { "text/event-stream": { "schema": { "type": "string" }, "examples": { "event": { "value": "data: {\\"type\\": \\\"log\\\", \\\"line\\\": \\\"Started...\\\"}\n\n" } } } }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "OpenAPI JSON",
+        "responses": { "200": { "description": "Spécification OpenAPI" } }
+      }
+    },
+    "/docs": {
+      "get": {
+        "summary": "Swagger UI",
+        "responses": { "200": { "description": "Interface Swagger UI" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "StartRequest": {
+        "type": "object",
+        "properties": {
+          "targetCote": { "type": "number", "description": "Objectif de cote totale (TARGET_COTE). Alias: target, target_cote." },
+          "marketId": { "type": "string", "description": "Identifiant du marché (MARKET_ID). Ex: DC, OU" },
+          "autoLogin": { "type": "string", "description": "'1' pour activer la connexion auto (AUTO_LOGIN)" },
+          "stakeAmount": { "type": "number", "description": "Montant de la mise (STAKE_AMOUNT)" },
+          "randomMode": { "type": "string", "description": "'1' pour activer la sélection aléatoire (RANDOM_MODE)" },
+          "randomSkipRate": { "type": "number", "description": "Taux d'abandon aléatoire (RANDOM_SKIP_RATE)" },
+          "maxOddPerSelection": { "type": "number", "description": "Cote max par sélection (MAX_ODD_PER_SELECTION)" },
+          "selectionMode": { "type": "string", "description": "Mode de sélection: priority, sequential... (SELECTION_MODE)" },
+          "ouLine": { "type": "number", "description": "Ligne OU (OU_LINE)" },
+          "ouPriority": { "type": "string", "description": "Priorité OU: over/under (OU_PRIORITY)" },
+          "countryCode": { "type": "string", "description": "Code pays pour la connexion" },
+          "phoneNumber": { "type": "string", "description": "Numéro de téléphone pour la connexion" },
+          "password": { "type": "string", "description": "Mot de passe pour la connexion" }
+        }
+      },
+      "StartResponse": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "example": "started" },
+          "pid": { "type": "integer" }
+        }
+      },
+      "StopResponse": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "example": "stopping" }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "object",
+            "properties": {
+              "running": { "type": "boolean" },
+              "startTime": { "type": ["string", "null"], "format": "date-time" },
+              "endTime": { "type": ["string", "null"], "format": "date-time" },
+              "exitCode": { "type": ["integer", "null"] }
+            }
+          },
+          "running": { "type": "boolean" },
+          "env": {
+            "type": ["object", "null"],
+            "properties": {
+              "MARKET_ID": { "type": "string" },
+              "NON_INTERACTIVE": { "type": "string" }
+            }
+          }
+        }
+      },
+      "SessionResponse": {
+        "type": "object",
+        "properties": {
+          "profileDirExists": { "type": "boolean" },
+          "sessionFileExists": { "type": "boolean" },
+          "session": { "type": ["object", "null"] }
+        }
+      },
+      "BasicMessageResponse": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}
