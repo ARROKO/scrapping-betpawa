@@ -346,6 +346,13 @@ async function run() {
     console.log('➡️  Navigation vers:', targetUrl);
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
+    // Effacer le coupon de pari s'il subsiste des sélections (bouton officiel)
+    try {
+      await page.waitForSelector('[data-test-id="clearBetSlip"] a.underline', { timeout: 2000 });
+      await page.click('[data-test-id="clearBetSlip"] a.underline');
+      await delay(600);
+    } catch (_) { /* bouton non présent = rien à effacer */ }
+
     // Helper pour lire la cote totale depuis le betslip (source de vérité UI)
     async function readTotalOdds() {
       try {

@@ -1,6 +1,8 @@
 const http = require('http');
 const { spawn } = require('child_process');
 const url = require('url');
+const fs = require('fs');
+const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 
@@ -153,6 +155,43 @@ const server = http.createServer(async (req, res) => {
 
   if (parsed.pathname === '/status' && req.method === 'GET') {
     json(res, 200, { status, running: !!(currentProc && status.running), env: currentEnv && { MARKET_ID: currentEnv.MARKET_ID, NON_INTERACTIVE: currentEnv.NON_INTERACTIVE } });
+    return;
+  }
+
+  if (parsed.pathname === '/session' && req.method === 'GET') {
+    try {
+      const profileDir = process.env.PAWA_PROFILE_DIR || path.join(process.cwd(), '.pawa-profile');
+      const sessFile = path.join(profileDir, 'session.json');
+      const profileDirExists = fs.existsSync(profileDir);
+      const sessionFileExists = fs.existsSync(sessFile);
+      let session = null;
+      if (sessionFileExists) {
+        try {
+          const raw = fs.readFileSync(sessFile, 'utf8');
+          session = JSON.parse(raw);
+        } catch (_) {}
+      }
+      json(res, 200, { profileDirExists, sessionFileExists, session });
+    } catch (e) {
+      json(res, 500, { error: e.message });
+    }
+    return;
+  }
+
+  if (parsed.pathname === '/logout' && req.method === 'POST') {
+    try {
+      // Stop current run if any
+      if (currentProc && status.running) {
+        currentProc.kill('SIGTERM');
+      }
+      const profileDir = process.env.PAWA_PROFILE_DIR || path.join(process.cwd(), '.pawa-profile');
+      if (fs.existsSync(profileDir)) {
+        fs.rmSync(profileDir, { recursive: true, force: true });
+      }
+      json(res, 200, { message: 'session cleared' });
+    } catch (e) {
+      json(res, 500, { error: e.message });
+    }
     return;
   }
 
