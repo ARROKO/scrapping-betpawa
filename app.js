@@ -1,299 +1,326 @@
-require("dotenv").config();
-const puppeteer = require("puppeteer");
-const readline = require("readline");
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+const puppeteer = require('puppeteer');
 
-function demanderOption() {
-  return new Promise((resolve) => {
-    console.log("Choisissez une option :");
-    console.log("1. Double chance");
-    console.log("2. Juste victoire");
-    console.log("3. Plus de 0.5 but");
-    console.log("4. Double chance + victoire");
-    console.log("5. Double chance + Plus de 0.5 but");
-    console.log("6. Juste victoire + Plus de 0.5 but");
-    rl.question("Votre choix (1/2/3) : ", (reponse) => {
-      rl.close();
-      resolve(reponse.trim());
-    });
-  });
+// Config test
+const DO_SCREENSHOT = false; // stop screenshots per user request
+const MAX_INTERLEAVED_SELECT = 200; // allow selecting throughout scroll
+
+// Test URL for Football Double Chance (DC)
+const TEST_URL = 'https://www.betpawa.cm/events?marketId=DC&categoryId=2';
+
+async function delay(ms) {
+  return new Promise((res) => setTimeout(res, ms));
 }
-(async () => {
-  const choix = await demanderOption();
 
-  // 1. Lancement du navigateur
+async function run() {
   const browser = await puppeteer.launch({
-    headless: false, // Mettez à true pour le mode sans interface
-    slowMo: 50, // Ralentit les actions pour mieux voir ce qui se passe
+    headless: false,
+    defaultViewport: { width: 1366, height: 820 },
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--start-maximized'],
+    slowMo: 50,
   });
 
   const page = await browser.newPage();
 
-  // 2. Aller sur la page d'accueil du site (remplacez l'URL)
-  await page.goto("https://www.betpawa.cm/", {
-    waitUntil: "networkidle2",
-  });
+  try {
+    console.log('➡️  Navigation vers:', TEST_URL);
+    await page.goto(TEST_URL, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
-  // 3. Cliquer sur le bouton Connexion
-  await page.waitForSelector('a.button.button-accent[href="/login"]');
-  await page.click('a.button.button-accent[href="/login"]');
-
-  // 4. Attendre que le popup de connexion apparaisse et remplir les infos
-  // Vous devrez adapter ces sélecteurs selon le HTML réel du popup
-  await page.waitForSelector(".country-code"); // Sélecteur du champ code pays
-  await page.type(".country-code", process.env.COUNTRY_CODE);
-
-  await page.waitForSelector("#login-form-phoneNumber"); // Sélecteur du champ email
-  await page.type("#login-form-phoneNumber", process.env.PHONE_NUMBER);
-
-  await page.waitForSelector("#login-form-password-input"); // Sélecteur du champ mot de passe
-  await page.type("#login-form-password-input", process.env.PASSWORD);
-
-  // 5. Soumettre le formulaire
-  await page.click('input[data-test-id="logInButton"]'); // Sélecteur du bouton de soumission (input submit)
-
-  // Attendre la connexion (vous pouvez vérifier un élément qui n'apparaît qu'après connexion)
-  await page.waitForSelector(".balance", { timeout: 5000 });
-
-  console.log("Connexion réussie!");
-
-  // Récupérer et afficher le contenu de l'élément .count
-  // Attendre et récupérer le texte du span
-  const solde = await page.$eval("span.button.balance", (span) =>
-    span.textContent.trim()
-  );
-  console.log("Solde:", solde);
-
-  // Extraire uniquement la partie numérique du solde
-  const match = solde.match(/[\d,.]+/);
-  const soldeNum = match ? parseFloat(match[0].replace(",", ".")) : 0;
-
-  async function autoScroll(page) {
-    await page.evaluate(async () => {
-      await new Promise((resolve) => {
-        let scrollPosition = 0;
-        const scrollInterval = setInterval(() => {
-          window.scrollBy(0, 500);
-          scrollPosition += 500;
-
-          if (scrollPosition >= 2500) {
-            clearInterval(scrollInterval);
-            resolve();
-          }
-        }, 200);
+    // Essayer de fermer une éventuelle bannière cookies
+    try {
+      await delay(1500);
+      await page.evaluate(() => {
+        const candidates = Array.from(document.querySelectorAll('button, .button, [role="button"]'));
+        const btn = candidates.find((el) => {
+          const t = (el.textContent || '').toLowerCase();
+          return t.includes('accepter') || t.includes('accept') || t.includes('ok') || t.includes('agree');
+        });
+        if (btn) btn.click();
       });
-    });
-    await delay(4000); // Longue attente après défilement
-  }
+    } catch (_) {}
 
-  async function safeClickAndPlaceBet(targetOdds = 5000, stakeAmount = 100) {
-    const MAX_ODDS = 2;
-    let selectedMatches = 0;
-    let consecutiveNoMatches = 0;
-    const MAX_CONSECUTIVE_NO_MATCHES = 10;
+    // Attendre que des évènements/odds soient présents
+    await delay(3000);
 
-    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    // Défilement léger pour forcer le chargement
+    await page.evaluate(() => window.scrollBy({ top: 600, behavior: 'smooth' }));
+    await delay(1500);
 
-    // Phase 1: Sélection des paris
-    while (true) {
-      let foundValidMatch = false;
-      let currentTotal = 1;
+    // Auto-scroll pour charger plus de matchs
+    console.log('🔄 Chargement des matchs supplémentaires via auto-scroll...');
+    async function loadAllEvents() {
+      const MAX_LOOPS = 120;
+      const IDLE_THRESHOLD = 8;
+      const WAIT_MS = 1000;
 
-      try {
-        // Vérifier le total actuel
-        try {
-          currentTotal = await page.$eval(
-            '[data-test-id="totalOdds"]',
-            (el) => parseFloat(el.textContent.replace(",", ".")) || 1
-          );
-          console.log(
-            `📊 Total actuel: ${currentTotal.toFixed(2)}/${targetOdds}`
-          );
+      function toInt(x) { return typeof x === 'number' ? Math.floor(x) : 0; }
 
-          if (currentTotal >= targetOdds) break;
-        } catch (error) {
-          console.log("ℹ️ TotalOdds non disponible");
-        }
+      let prevCount = 0;
+      let idle = 0;
+      const processedEventIds = new Set();
+      const MAX_SELECT = MAX_INTERLEAVED_SELECT; // sélection maximum pendant le scroll
+      let totalSelected = 0;
 
-        // Trouver et traiter les matchs
-        await page.waitForSelector(".event-bets", { timeout: 10000 });
-        const bets = await page.$$(".event-bets");
+      for (let i = 0; i < MAX_LOOPS && idle < IDLE_THRESHOLD; i++) {
+        // Détection du bon conteneur scrollable (réel): .section-middle .scrollable-content
+        const stats = await page.evaluate(() => {
+          function isScrollable(el) {
+            if (!el || !(el instanceof HTMLElement)) return false;
+            const style = window.getComputedStyle(el);
+            const canScroll = ['auto', 'scroll'].includes(style.overflowY) || ['auto', 'scroll'].includes(style.overflow);
+            return canScroll && el.scrollHeight > el.clientHeight;
+          }
+          const container = document.querySelector('.section-middle .scrollable-content');
+          // Faire défiler le dernier évènement dans le viewport
+          const events = Array.from(document.querySelectorAll('.game-events-container.prematch'));
+          const lastEvent = events[events.length - 1];
+          if (lastEvent) lastEvent.scrollIntoView({ behavior: 'smooth', block: 'end' });
 
-        for (const bet of bets) {
-          try {
-            const isSelected = await bet
-              .evaluate((el) => !!el.querySelector(".event-bet.selected"))
-              .catch(() => false);
+          // Petit scroll du conteneur principal
+          if (container && typeof container.scrollTo === 'function') {
+            container.scrollTo({ top: container.scrollTop + 800, behavior: 'smooth' });
+          } else {
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+          }
 
-            if (isSelected) continue;
+          const count = events.length;
+          return { hasContainer: !!container, count };
+        });
 
-            const odds = await bet.$$eval(
-              ".event-odds span:not(.svg-icon)",
-              (els) => els.map((el) => parseFloat(el.textContent) || Infinity)
-            );
+        // Scroll avec rebond
+        await page.evaluate(() => {
+          const container = document.querySelector('.section-middle .scrollable-content') || document.body;
+          const to = container.scrollHeight || document.body.scrollHeight;
+          if (typeof container.scrollTo === 'function') {
+            container.scrollTo({ top: to, behavior: 'smooth' });
+            setTimeout(() => container.scrollTo({ top: to * 0.9, behavior: 'smooth' }), 150);
+            setTimeout(() => container.scrollTo({ top: to, behavior: 'smooth' }), 300);
+          } else {
+            window.scrollTo({ top: to, behavior: 'smooth' });
+            setTimeout(() => window.scrollTo({ top: to * 0.9, behavior: 'smooth' }), 150);
+            setTimeout(() => window.scrollTo({ top: to, behavior: 'smooth' }), 300);
+          }
+          container.dispatchEvent(new Event('scroll', { bubbles: true }));
+          window.dispatchEvent(new Event('scroll'));
+        });
 
-            if (odds.length < 3 || Math.min(odds[0], odds[2]) > MAX_ODDS)
-              continue;
+        // Attendre et mesurer
+        await delay(WAIT_MS);
 
-            const bestOdd = Math.min(odds[0], odds[2]);
-            const selector =
-              odds[0] < odds[2]
-                ? '[data-test-id*="3744"] .event-bet'
-                : '[data-test-id*="3746"] .event-bet';
+        // Fallback: envoyer End pour forcer le scroll global
+        try { await page.keyboard.press('End'); } catch (_) {}
+        await delay(300);
 
-            const btn = await bet.$(selector);
-            if (btn) {
-              await btn.click();
-              await delay(2000);
+        // Nouvelle mesure
+        const count = await page.evaluate(() => document.querySelectorAll('.game-events-container.prematch').length);
+        console.log(`   ➕ Chunks: ${count} (loop ${i + 1})`);
+        if (count <= prevCount) idle++; else idle = 0;
+        prevCount = count;
 
-              const isNowSelected = await btn.evaluate((el) =>
-                el.classList.contains("selected")
-              );
+        // Intercaler la sélection pendant le scroll pour les nouveaux évènements
+        if (totalSelected < MAX_SELECT) {
+          const targets = await page.evaluate((processedList) => {
+            function norm(s) { return (s || '').trim().toLowerCase(); }
+            const pickOrder = ['1x', 'x2', '12'];
+            const newTargets = [];
+            const events = Array.from(document.querySelectorAll('.game-events-container.prematch'));
+            for (const ev of events) {
+              const link = ev.querySelector('a[href^="/event/"]');
+              let eventId = null;
+              if (link) {
+                const m = (link.getAttribute('href') || '').match(/\/event\/(\d+)/);
+                if (m) eventId = m[1];
+              }
+              if (!eventId || processedList.includes(eventId)) continue;
 
-              if (isNowSelected) {
-                selectedMatches++;
-                foundValidMatch = true;
-                consecutiveNoMatches = 0;
-                console.log(
-                  `✅ Paris ${selectedMatches}: Côte ${bestOdd.toFixed(2)}`
-                );
+              const wraps = ev.querySelectorAll('.betline-list .event-bet-wrapper.bet-price .event-bet .anchor-wrap');
+              if (!wraps || wraps.length === 0) continue;
+
+              let chosen = null;
+              for (const code of pickOrder) {
+                chosen = Array.from(wraps).find(w => {
+                  const label = norm(w.querySelector('.event-selection')?.textContent);
+                  const isLocked = w.querySelector('.event-selection_locked, .event-odds_locked');
+                  return label === code && !isLocked;
+                });
+                if (chosen) break;
+              }
+              if (!chosen) continue;
+
+              const priceId = chosen.id || '';
+              const label = (chosen.querySelector('.event-selection')?.textContent || '').trim();
+              const odd = (chosen.querySelector('.event-odds span')?.textContent || '').trim();
+              if (priceId) newTargets.push({ priceId, label, odd, eventId });
+
+              if (newTargets.length >= 5) break; // batch limité par itération
+            }
+            return newTargets;
+          }, Array.from(processedEventIds));
+
+          if (targets && targets.length > 0) {
+            console.log(`   🎯 Sélection en cours (batch ${targets.length})...`);
+            for (const t of targets) {
+              try {
+                // scroll into view before click
+                await page.evaluate((sid) => {
+                  const el = document.querySelector(`#${sid}`);
+                  el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, t.priceId);
+                await delay(120);
+                await page.click(`#${t.priceId}`);
+                await delay(250);
+                // verify selection state
+                const selectedOk = await page.evaluate((sid) => {
+                  const el = document.querySelector(`#${sid}`);
+                  if (!el) return false;
+                  const cont = el.closest('.event-bet-wrapper');
+                  if (!cont) return false;
+                  const cl = cont.classList;
+                  return cl.contains('selected') || cl.contains('active') || cl.contains('event-bet--selected') || cont.getAttribute('aria-selected') === 'true';
+                }, t.priceId);
+                processedEventIds.add(t.eventId);
+                totalSelected++;
+                console.log(selectedOk
+                  ? `   ✅ Sélection confirmée: ${t.label} @ ${t.odd} (eventId=${t.eventId})`
+                  : `   ⚠️ Sélection non confirmée (peut varier selon l'état du site): ${t.label} (eventId=${t.eventId})`);
+                if (totalSelected >= MAX_SELECT) break;
+              } catch (e) {
+                console.log(`   ⚠️ Échec clic (${t.eventId}): ${e.message}`);
               }
             }
-          } catch (error) {
-            console.error("⚠️ Erreur sur un match:", error.message);
+          }
+        }
+      }
+      return prevCount;
+    }
+
+    const totalChunks = await loadAllEvents();
+    console.log(`📈 Total d'évènements chargés: ${totalChunks}`);
+
+    // Extraction des sélections DC (1X, 12, X2)
+    const results = await page.evaluate(() => {
+      const LABELS = new Set(['1x', '12', 'x2']);
+
+      function getEventRoot(node) {
+        if (!node) return null;
+        let el = node;
+        for (let i = 0; i < 10 && el; i++) {
+          // Chercher un ancêtre contenant un lien vers /event/<id> ou une carte match
+          const link = el.querySelector ? el.querySelector('a[href^="/event/"]') : null;
+          if (link) return el;
+          el = el.parentElement;
+        }
+        return null;
+      }
+
+      function getEventIdFrom(root) {
+        if (!root) return null;
+        const a = root.querySelector('a[href^="/event/"]');
+        if (a && a.getAttribute) {
+          const href = a.getAttribute('href') || '';
+          const m = href.match(/\/event\/(\d+)/);
+          return m ? m[1] : href;
+        }
+        return null;
+      }
+
+      function getTeamsFrom(root) {
+        if (!root) return '';
+        // Heuristique: prendre un header/titre proche
+        const candidateSelectors = [
+          '.game-event-header',
+          '.game-event__header',
+          '.event-header',
+          '.event-title',
+          'h3, h4, header',
+        ];
+        for (const sel of candidateSelectors) {
+          const el = root.querySelector(sel);
+          const text = el && el.textContent ? el.textContent.trim() : '';
+          if (text && / vs | v | - /.test(text.toLowerCase())) return text;
+          if (text && text.length > 0) return text;
+        }
+        // Fallback: texte global root
+        return (root.textContent || '').trim().slice(0, 120);
+      }
+
+      // Collecter tous les éléments d'odd potentiels qui portent les labels DC
+      const allClickable = Array.from(document.querySelectorAll('button, .event-bet, .event-odd, .odd, .bet, .event-odds span, .event-odds button'));
+
+      const items = [];
+      for (const el of allClickable) {
+        const label = (el.textContent || '').trim().toLowerCase();
+        if (!label) continue;
+
+        // Essayer d'isoler un label court (1X, 12, X2) dans le texte
+        const foundLabel = label.includes('1x') ? '1X' : label.includes('x2') ? 'X2' : label.includes('12') ? '12' : null;
+        if (!foundLabel) continue;
+
+        const root = getEventRoot(el);
+        if (!root) continue;
+        const eventId = getEventIdFrom(root) || 'unknown';
+
+        // Tentative de récupérer la cote proche du label
+        let odd = '';
+        // Chercher un sibling numéraire
+        const near = [el, el.parentElement, root];
+        for (const scope of near) {
+          if (!scope) continue;
+          const oddsTextNodes = Array.from(scope.querySelectorAll('*'))
+            .map((n) => (n.textContent || '').trim())
+            .filter((t) => /\d+(?:[\.,]\d+)?/.test(t))
+            .slice(0, 5);
+          if (oddsTextNodes.length) {
+            const cand = oddsTextNodes.find((t) => !t.toLowerCase().includes('1x') && !t.toLowerCase().includes('x2') && !t.toLowerCase().includes('12'));
+            if (cand) { odd = cand; break; }
           }
         }
 
-        if (!foundValidMatch) {
-          consecutiveNoMatches++;
-          console.log(
-            `🔄 Défilement ${consecutiveNoMatches} (aucun nouveau match valide)`
-          );
-
-          if (consecutiveNoMatches >= MAX_CONSECUTIVE_NO_MATCHES) {
-            console.log("🏁 Aucun nouveau match depuis longtemps");
-            break;
-          }
-        } else {
-          consecutiveNoMatches = 0;
-        }
-
-        await autoScroll(page);
-      } catch (error) {
-        console.error("🚨 Erreur générale:", error.message);
-        await delay(5000);
+        items.push({ eventId, foundLabel, odd, teams: getTeamsFrom(root) });
       }
-    }
 
-    // Phase 2: Placement de la mise
-    try {
-      console.log("💵 Préparation de la mise...");
-
-      // 1. Remplir le champ de mise
-      await page.waitForSelector("#betslip-form-stake-input", {
-        timeout: 5000,
-      });
-      await page.focus("#betslip-form-stake-input");
-      await page.keyboard.down("Control");
-      await page.keyboard.press("A");
-      await page.keyboard.up("Control");
-      await page.keyboard.press("Backspace");
-      await page.type("#betslip-form-stake-input", stakeAmount.toString(), {
-        delay: 100,
-      });
-
-      console.log(`💰 Montant saisi: ${stakeAmount}`);
-
-      // 2. Cliquer sur le bouton de pari
-      await page.waitForSelector(".place-bet.button-primary", {
-        timeout: 5000,
-      });
-      await page.click(".place-bet.button-primary");
-
-      console.log("🎰 Pari en cours...");
-      await delay(3000); // Attente confirmation
-
-      // 3. Vérification du succès
-      const isSuccess = await page
-        .evaluate(() => {
-          const successMsg = document.querySelector(".bet-confirmation");
-          return (
-            !!successMsg && getComputedStyle(successMsg).display !== "none"
-          );
-        })
-        .catch(() => false);
-
-      if (isSuccess) {
-        console.log("✔️ Pari effectué avec succès!");
-      } else {
-        console.log("❌ Échec du placement de pari");
+      // Regrouper par eventId et condenser
+      const byEvent = new Map();
+      for (const it of items) {
+        if (!byEvent.has(it.eventId)) byEvent.set(it.eventId, { eventId: it.eventId, teams: it.teams, selections: {} });
+        const rec = byEvent.get(it.eventId);
+        if (!rec.selections[it.foundLabel]) rec.selections[it.foundLabel] = it.odd;
       }
-    } catch (betError) {
-      console.error("💥 Erreur lors du placement du pari:", betError.message);
-    }
+      return Array.from(byEvent.values());
+    });
 
-    // Résultat final
-    const finalTotal = await page
-      .$eval(
-        '[data-test-id="totalOdds"]',
-        (el) => parseFloat(el.textContent.replace(",", ".")) || 1
-      )
-      .catch(() => 1);
-
-    return {
-      success: finalTotal >= targetOdds,
-      totalOdds: finalTotal,
-      selectedMatches,
-      betPlaced: true,
-    };
-  }
-
-  if (soldeNum > 0) {
-    console.log("Le solde est supérieur à 0:", soldeNum);
-
-    // Après la connexion et la récupération du solde
-
-    // Vérifier si l'élément "Tout voir Football" existe et cliquer dessus si présent
-    const toutVoirSelector = "div.event-counter span.pointer span:first-child";
-
-    const toutVoirExists = await page.$(toutVoirSelector);
-    if (toutVoirExists) {
-      // Cliquer sur le parent .pointer pour s'assurer que le clic fonctionne
-      await page.click("div.event-counter span.pointer");
-      console.log('Clic sur "Tout voir Football" effectué.');
-      console.log("Vous avez choisit", choix);
-
-      // Utilise la variable "choix" pour la suite du script
-      if (choix === "1") {
-        console.log("Option choisie : Double chance");
-        // ... logique double chance ...
-      } else if (choix === "2") {
-        console.log("Option choisie : Juste victoire");
-
-        // Utilisation
-        (async () => {
-          const result = await safeClickAndPlaceBet(1000000, 10);
-          console.log(result);
-        })();
-
-      } else if (choix === "3") {
-        console.log("Option choisie : Double chance + victoire");
-        // ... logique combinée ...
-      } else {
-        console.log("Choix invalide, arrêt du script.");
-        process.exit(1);
-      }
+    console.log('📊 Résultats DC (Football):');
+    if (!results || results.length === 0) {
+      console.log('Aucun évènement ou sélection DC détecté (les sélecteurs peuvent nécessiter un ajustement).');
     } else {
-      console.log('"Tout voir Football" non trouvé.');
+      for (const ev of results) {
+        console.log('—'.repeat(60));
+        console.log('Match/Event ID:', ev.eventId);
+        console.log('Teams/Titre   :', ev.teams);
+        console.log('Sélections    :', ev.selections);
+      }
+      console.log('—'.repeat(60));
+      console.log(`✅ Total évènements détectés: ${results.length}`);
     }
-  } else {
-    console.log("Le solde est nul ou négatif:", soldeNum);
-    // ... arrêter ou autre action ...
-  }
 
-  // Fermer le navigateur
-  //await browser.close();
-})();
+    // Screenshot désactivé
+    if (DO_SCREENSHOT) {
+      try {
+        await page.screenshot({ path: 'dc-test-screenshot.png', fullPage: true });
+        console.log('📸 Screenshot enregistré: dc-test-screenshot.png');
+      } catch (_) {}
+    }
+
+    // Désactivation de la sélection finale (on a déjà sélectionné pendant le scroll)
+
+  } catch (err) {
+    console.error('❌ Erreur pendant le test DC:', err.message);
+  } finally {
+    // Laisser quelques secondes pour inspection avant fermeture
+    await delay(5000);
+    await browser.close();
+  }
+}
+
+if (require.main === module) {
+  run();
+}
