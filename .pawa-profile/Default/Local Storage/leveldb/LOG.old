@@ -1,15 +1,21 @@
-2025/09/26-14:29:35.226 4914 Reusing MANIFEST C:\Users\Joseph\Documents\GitHub\scrapping-betpawa\.pawa-profile\Default\Local Storage\leveldb/MANIFEST-000001
-2025/09/26-14:29:35.258 4914 Recovering log #13
-2025/09/26-14:29:35.264 4914 Level-0 table #15: started
-2025/09/26-14:29:35.438 4914 Level-0 table #15: 192449 bytes OK
-2025/09/26-14:29:35.454 4914 Delete type=0 #13
-2025/09/26-14:29:35.456 262c Compacting 4@0 + 0@1 files
-2025/09/26-14:29:35.481 262c Generated table #17@0: 4 keys, 192449 bytes
-2025/09/26-14:29:35.481 262c Compacted 4@0 + 0@1 files => 192449 bytes
-2025/09/26-14:29:35.487 262c compacted to: files[ 0 1 1 0 0 0 0 ]
-2025/09/26-14:29:35.488 262c Delete type=2 #7
-2025/09/26-14:29:35.488 262c Delete type=2 #10
-2025/09/26-14:29:35.488 262c Delete type=2 #12
-2025/09/26-14:29:35.489 262c Delete type=2 #15
-2025/09/26-14:30:27.160 262c Level-0 table #19: started
-2025/09/26-14:30:27.402 262c Level-0 table #19: 186496 bytes OK
+2025/09/27-06:03:00.716 4254 Reusing MANIFEST C:\Users\Joseph\Documents\GitHub\scrapping-betpawa\.pawa-profile\Default\Local Storage\leveldb/MANIFEST-000001
+2025/09/27-06:03:00.747 4254 Recovering log #30
+2025/09/27-06:03:00.756 4254 Level-0 table #32: started
+2025/09/27-06:03:00.767 4254 Level-0 table #32: 186518 bytes OK
+2025/09/27-06:03:00.782 4254 Recovering log #31
+2025/09/27-06:03:00.793 4254 Level-0 table #33: started
+2025/09/27-06:03:00.809 4254 Level-0 table #33: 192421 bytes OK
+2025/09/27-06:03:00.817 4254 Delete type=0 #30
+2025/09/27-06:03:00.817 4254 Delete type=0 #31
+2025/09/27-06:03:00.821 1f2c Compacting 4@0 + 1@1 files
+2025/09/27-06:03:00.850 1f2c Generated table #35@0: 4 keys, 192471 bytes
+2025/09/27-06:03:00.850 1f2c Compacted 4@0 + 1@1 files => 192471 bytes
+2025/09/27-06:03:00.854 1f2c compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/09/27-06:03:00.855 1f2c Delete type=2 #26
+2025/09/27-06:03:00.855 1f2c Delete type=2 #28
+2025/09/27-06:03:00.855 1f2c Delete type=2 #29
+2025/09/27-06:03:00.855 1f2c Delete type=2 #32
+2025/09/27-06:03:00.856 1f2c Delete type=2 #33
+2025/09/27-06:04:00.854 4254 Level-0 table #37: started
+2025/09/27-06:04:00.869 4254 Level-0 table #37: 186531 bytes OK
+2025/09/27-06:04:00.872 4254 Delete type=0 #34

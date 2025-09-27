@@ -1,11 +1,8 @@
-2025/09/26-14:40:36.370 2988 Reusing MANIFEST C:\Users\Joseph\Documents\GitHub\scrapping-betpawa\.pawa-profile\Default\Local Storage\leveldb/MANIFEST-000001
-2025/09/26-14:40:36.388 2988 Recovering log #16
-2025/09/26-14:40:36.396 2988 Level-0 table #19: started
-2025/09/26-14:40:36.432 2988 Level-0 table #19: 186496 bytes OK
-2025/09/26-14:40:36.450 2988 Recovering log #18
-2025/09/26-14:40:36.456 2988 Level-0 table #20: started
-2025/09/26-14:40:36.504 2988 Level-0 table #20: 191776 bytes OK
-2025/09/26-14:40:36.521 2988 Delete type=0 #16
-2025/09/26-14:40:36.521 2988 Delete type=0 #18
-2025/09/26-14:41:32.741 636c Level-0 table #23: started
-2025/09/26-14:41:32.766 636c Level-0 table #23: 186509 bytes OK
+2025/09/27-09:43:09.438 2be4 Reusing MANIFEST C:\Users\Joseph\Documents\GitHub\scrapping-betpawa\.pawa-profile\Default\Local Storage\leveldb/MANIFEST-000001
+2025/09/27-09:43:09.449 2be4 Recovering log #36
+2025/09/27-09:43:09.459 2be4 Level-0 table #39: started
+2025/09/27-09:43:09.483 2be4 Level-0 table #39: 186820 bytes OK
+2025/09/27-09:43:09.490 2be4 Delete type=0 #36
+2025/09/27-09:44:09.527 2be4 Level-0 table #42: started
+2025/09/27-09:44:09.538 2be4 Level-0 table #42: 186537 bytes OK
+2025/09/27-09:44:09.543 2be4 Delete type=0 #40

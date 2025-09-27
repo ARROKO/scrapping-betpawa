@@ -739,7 +739,7 @@ async function run() {
       if (placementAuto && stakeAmount > 0) {
         console.log('💰 Placement automatique activé.');
         const placed = await placeBet(page, stakeAmount);
-        console.log(placed ? '🎉 Pari placé avec succès.' : '❌ Échec du placement du pari.');
+        console.log(placed ? 'Pari placé avec succès.' : '❌ Échec du placement du pari.');
         const newBalance = await getBalance(page);
         if (newBalance != null) console.log(`💰 Nouveau solde: ${newBalance}`);
       } else if (placementAuto) {

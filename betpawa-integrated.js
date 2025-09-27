@@ -49,6 +49,10 @@ async function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Limite stricte du nombre maximum de sélections autorisées dans le coupon BetPawa
+// D'après la plateforme, le plafond est de 60 événements
+const MAX_SELECTIONS = 60;
+
 /**
  * Effectue un clic sur un élément avec réessais
  * @param {Object} page - Instance de la page Puppeteer
@@ -2123,7 +2127,11 @@ async function executeBettingProcess(page, matches, config) {
   console.log(`🎲 Mode: ${config.modeAleatoire ? 'Aléatoire' : 'Séquentiel'}`);
   
   // Sélectionner les matchs pour parier
-  const matchesToBet = selectMatchesToBet(matches, config);
+  let matchesToBet = selectMatchesToBet(matches, config);
+  if (matchesToBet.length > MAX_SELECTIONS) {
+    console.log(`⚠️ ${matchesToBet.length} matchs sélectionnés, dépasse la limite de ${MAX_SELECTIONS}. Limitation appliquée.`);
+    matchesToBet = matchesToBet.slice(0, MAX_SELECTIONS);
+  }
   
   if (matchesToBet.length === 0) {
     console.log(`❌ Aucun match ne correspond aux critères de paris.`);
@@ -2141,8 +2149,24 @@ async function executeBettingProcess(page, matches, config) {
     selectionsEchouees: 0
   };
   
-  // Sélectionner les matchs jusqu'à atteindre la cote cible
+  // Sélectionner les matchs jusqu'à atteindre la cote cible ou la limite de 60 événements
   for (const match of matchesToBet) {
+    // Vérifier la limite interne
+    if (stats.selectionsReussies >= MAX_SELECTIONS) {
+      console.log(`⛔ Limite de ${MAX_SELECTIONS} sélections atteinte. Arrêt des ajouts.`);
+      break;
+    }
+
+    // Vérifier la limite réelle du coupon côté DOM
+    try {
+      const betslipCount = await page.evaluate(() => document.querySelectorAll('.betslip-bet').length);
+      if (betslipCount >= 60) {
+        console.log(`⛔ Coupon déjà à ${betslipCount} sélections (≥ 60). Arrêt des ajouts.`);
+        break;
+      }
+    } catch (_) {
+      // Si la lecture échoue, on continue en s'appuyant sur la limite interne
+    }
     console.log(`\n🏁 Sélection ${stats.selectionsReussies + 1} - Cote actuelle: ${stats.coteTotal.toFixed(2)}x`);
     console.log(`🎯 Cote cible: ${config.coteTarget}x`);
     
